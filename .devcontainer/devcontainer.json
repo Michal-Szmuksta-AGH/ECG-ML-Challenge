@@ -30,13 +30,9 @@
                     "/bin/python3",
 		            "/usr/bin/python3"
                 ]
-            },
+            }
 		}
-	},
-	"runArgs": ["--gpus", "all"]
-	// Features to add to the dev container. More info: https://containers.dev/features.
-	// "features": {},
-
-	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	// "forwardPorts": [8888],
+	}
+    // Uncomment the next line if you want to use GPU
+	// "runArgs": ["--gpus", "all"]
 }
