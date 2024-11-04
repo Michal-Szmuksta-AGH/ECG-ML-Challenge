@@ -40,11 +40,11 @@ format:
 
 
 ## Set up python interpreter environment
-.PHONY: create_environment
-create_environment:
-	conda env create --name $(PROJECT_NAME) -f environment.yml
+# .PHONY: create_environment
+# create_environment:
+# 	conda env create --name $(PROJECT_NAME) -f environment.yml
 	
-	@echo ">>> conda env created. Activate with:\nconda activate $(PROJECT_NAME)"
+# 	@echo ">>> conda env created. Activate with:\nconda activate $(PROJECT_NAME)"
 	
 
 
