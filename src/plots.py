@@ -40,12 +40,12 @@ def plot_ecg(
         signal = record
 
     if t_end is None:
-        num_samples = signal.shape[0]
-        t_end = num_samples / fs
+        num_samples = signal.shape[0] - t_start * fs
+        t_end = signal.shape[0] / fs
     else:
         num_samples = int((t_end - t_start) * fs)
 
-    time = np.linspace(t_start, t_end, num_samples - )
+    time = np.linspace(t_start, t_end, num_samples)
     if channels == -1:
         try:
             channels = np.arange(signal.shape[1])
