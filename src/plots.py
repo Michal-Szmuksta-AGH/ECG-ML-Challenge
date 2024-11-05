@@ -45,7 +45,7 @@ def plot_ecg(
     else:
         num_samples = int((t_end - t_start) * fs)
 
-    time = np.linspace(t_start, t_end, num_samples)
+    time = np.linspace(t_start, t_end, num_samples - )
     if channels == -1:
         try:
             channels = np.arange(signal.shape[1])
@@ -82,7 +82,7 @@ def plot_ecg(
             y_pos = signal[ann_samples, channel]
 
             for sample, symbol, y in zip(ann_samples, ann_symbols, y_pos):
-                if symbol == "A":
+                if symbol != "N":
                     ax[i].annotate(
                         symbol,
                         (sample / fs, y),
