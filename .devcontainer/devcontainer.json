@@ -19,8 +19,9 @@
 				"GitHub.copilot",
 				"MS-CEINTL.vscode-language-pack-pl",
 				"ms-vscode.makefile-tools",
-                "ms-azuretools.vscode-docker",
-				"mhutchie.git-graph"
+				"ms-azuretools.vscode-docker",
+				"mhutchie.git-graph",
+				"ms-python.black-formatter"
 			],
             "settings": {
                 "files.autoSave": "afterDelay",
