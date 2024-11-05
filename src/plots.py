@@ -1,29 +1,74 @@
-from pathlib import Path
-
-import typer
-from loguru import logger
-from tqdm import tqdm
-
-from src.config import FIGURES_DIR, PROCESSED_DATA_DIR
-
-app = typer.Typer()
+import wfdb
+import numpy as np
+import matplotlib.pyplot as plt
+from typing import Union, Iterable
 
 
-@app.command()
-def main(
-    # ---- REPLACE DEFAULT PATHS AS APPROPRIATE ----
-    input_path: Path = PROCESSED_DATA_DIR / "dataset.csv",
-    output_path: Path = FIGURES_DIR / "plot.png",
-    # -----------------------------------------
-):
-    # ---- REPLACE THIS WITH YOUR OWN CODE ----
-    logger.info("Generating plot from data...")
-    for i in tqdm(range(10), total=10):
-        if i == 5:
-            logger.info("Something happened for iteration 5.")
-    logger.success("Plot generation complete.")
-    # -----------------------------------------
+def plot_ecg(
+    record: Union[np.ndarray, wfdb.Record],
+    fs: int,
+    channels: Union[Iterable[int], int] = -1,
+    t_start: Union[float, int] = 0,
+    t_end: Union[float, int] = None,
+) -> plt.Figure:
+    """
+    Plot ECG signal.
 
+    :param record: Numpy array ECG signal or wfdb.Record object.
+    :param fs: Sampling frequency.
+    :param channels: List of channels to plot. If -1, plot all channels.
+    :param t_start: Start time of the plot.
+    :param t_end: End time of the plot. If None, plot the whole signal.
+    """
+    if not isinstance(record, (np.ndarray, wfdb.Record)):
+        raise ValueError("record must be a numpy array or wfdb.Record object")
+    if not isinstance(fs, int):
+        raise ValueError("fs must be an integer")
+    if not isinstance(channels, (Iterable, int)):
+        raise ValueError("channels must be an iterable or integer")
+    if not isinstance(t_start, (float, int)):
+        raise ValueError("t_start must be a float or integer")
+    if t_end is not None and not isinstance(t_end, (float, int)):
+        raise ValueError("t_end must be a float or integer")
 
-if __name__ == "__main__":
-    app()
+    if isinstance(record, wfdb.Record):
+        signal = record.p_signal
+    else:
+        signal = record
+
+    if t_end is None:
+        t_end = signal.shape[0] / fs
+
+    time = np.linspace(t_start, t_end, (t_end - t_start) * fs)
+    if channels == -1:
+        try:
+            channels = np.arange(signal.shape[1])
+        except IndexError:
+            channels = [0]
+        num_channels = len(channels)
+    else:
+        num_channels = len(channels)
+
+    sig_name = record.sig_name if isinstance(record, wfdb.Record) else None
+
+    fig, ax = plt.subplots(
+        num_channels, 1, figsize=(10, 4 * num_channels), sharex=True, sharey=True
+    )
+    if num_channels == 1:
+        ax = [ax]
+        signal = signal.reshape(-1, 1)
+    fig.suptitle("ECG signal")
+    fig.patch.set_facecolor("#ffe7e7")
+    for i, channel in enumerate(channels):
+        ax[i].plot(time, signal[t_start * fs : t_end * fs, channel], color="blue")
+        ax[i].set_ylabel("Amplitude")
+        ax[i].set_xlim(t_start, t_end)  # Set x-axis limits
+        ax[i].set_xticks(np.linspace(t_start, t_end, num=10))
+        ax[i].set_title(f"CH{channel}{': ' + sig_name[channel] if sig_name is not None else ''}")
+        ax[i].set_facecolor("#ffe7e7")
+        ax[i].grid(color="red", linewidth=0.5)
+
+    ax[-1].set_xlabel("Time [s]")
+    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    return fig

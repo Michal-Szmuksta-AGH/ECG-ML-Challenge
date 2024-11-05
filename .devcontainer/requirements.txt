@@ -25,3 +25,5 @@ jupyterlab
 black
 pre-commit
 optuna
+wfdb
+pytest

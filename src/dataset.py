@@ -1,29 +1,24 @@
-from pathlib import Path
-
-import typer
+import os
+import wfdb
 from loguru import logger
-from tqdm import tqdm
 
-from src.config import PROCESSED_DATA_DIR, RAW_DATA_DIR
+def download_wfdb_dataset(dataset_name: str, dataset_dir: str) -> None:
+    """
+    Load WFDB dataset.
 
-app = typer.Typer()
+    :param dataset_name: Name of the dataset.
+    :param dataset_dir: Directory to save the dataset.
+    """
 
+    if not isinstance(dataset_name, str):
+        raise ValueError('dataset_name must be a string')
+    if not isinstance(dataset_dir, str):
+        raise ValueError('dataset_dir must be a string')
 
-@app.command()
-def main(
-    # ---- REPLACE DEFAULT PATHS AS APPROPRIATE ----
-    input_path: Path = RAW_DATA_DIR / "dataset.csv",
-    output_path: Path = PROCESSED_DATA_DIR / "dataset.csv",
-    # ----------------------------------------------
-):
-    # ---- REPLACE THIS WITH YOUR OWN CODE ----
-    logger.info("Processing dataset...")
-    for i in tqdm(range(10), total=10):
-        if i == 5:
-            logger.info("Something happened for iteration 5.")
-    logger.success("Processing dataset complete.")
-    # -----------------------------------------
-
-
-if __name__ == "__main__":
-    app()
+    if not os.path.exists(dataset_dir) or len(os.listdir(dataset_dir)) == 0:
+        logger.info(f'{dataset_name} not found in {dataset_dir}.')
+        logger.info(f'Downloading {dataset_name} database into {dataset_dir}...')
+        wfdb.dl_database(dataset_name, dl_dir=dataset_dir)
+        logger.info(f'{dataset_name} database downloaded.')
+    else:
+        logger.info(f'{dataset_name} already exists in {dataset_dir}.')
