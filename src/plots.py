@@ -8,8 +8,9 @@ def plot_ecg(
     record: Union[np.ndarray, wfdb.Record],
     fs: int,
     channels: Union[Iterable[int], int] = -1,
-    t_start: Union[float, int] = 0,
-    t_end: Union[float, int] = None,
+    t_start: int = 0,
+    t_end: Union[int, None] = None,
+    annotation: Union[wfdb.Annotation, None] = None,
 ) -> plt.Figure:
     """
     Plot ECG signal.
@@ -26,10 +27,12 @@ def plot_ecg(
         raise ValueError("fs must be an integer")
     if not isinstance(channels, (Iterable, int)):
         raise ValueError("channels must be an iterable or integer")
-    if not isinstance(t_start, (float, int)):
-        raise ValueError("t_start must be a float or integer")
-    if t_end is not None and not isinstance(t_end, (float, int)):
-        raise ValueError("t_end must be a float or integer")
+    if not isinstance(t_start, int):
+        raise ValueError("t_start must be an integer")
+    if t_end is not None and not isinstance(t_end, int):
+        raise ValueError("t_end must be an integer")
+    if annotation is not None and not isinstance(annotation, wfdb.Annotation):
+        raise ValueError("annotation must be a wfdb.Annotation object")
 
     if isinstance(record, wfdb.Record):
         signal = record.p_signal
@@ -37,9 +40,12 @@ def plot_ecg(
         signal = record
 
     if t_end is None:
-        t_end = signal.shape[0] / fs
+        num_samples = signal.shape[0]
+        t_end = num_samples / fs
+    else:
+        num_samples = int((t_end - t_start) * fs)
 
-    time = np.linspace(t_start, t_end, (t_end - t_start) * fs)
+    time = np.linspace(t_start, t_end, num_samples)
     if channels == -1:
         try:
             channels = np.arange(signal.shape[1])
@@ -60,13 +66,31 @@ def plot_ecg(
     fig.suptitle("ECG signal")
     fig.patch.set_facecolor("#ffe7e7")
     for i, channel in enumerate(channels):
-        ax[i].plot(time, signal[t_start * fs : t_end * fs, channel], color="blue")
+        ax[i].plot(time, signal[t_start * fs : t_start * fs + num_samples, channel], color="blue")
         ax[i].set_ylabel("Amplitude")
-        ax[i].set_xlim(t_start, t_end)  # Set x-axis limits
+        ax[i].set_xlim(t_start, t_end)
         ax[i].set_xticks(np.linspace(t_start, t_end, num=10))
         ax[i].set_title(f"CH{channel}{': ' + sig_name[channel] if sig_name is not None else ''}")
         ax[i].set_facecolor("#ffe7e7")
         ax[i].grid(color="red", linewidth=0.5)
+
+        if annotation is not None:
+            mask = (annotation.sample >= t_start * fs) & (annotation.sample < t_end * fs)
+            ann_samples = annotation.sample[mask]
+            ann_symbols = np.array(annotation.symbol)[mask]
+
+            y_pos = signal[ann_samples, channel]
+
+            for sample, symbol, y in zip(ann_samples, ann_symbols, y_pos):
+                if symbol == "A":
+                    ax[i].annotate(
+                        symbol,
+                        (sample / fs, y),
+                        xytext=(0, 10),
+                        textcoords="offset points",
+                        ha="center",
+                        color="red",
+                    )
 
     ax[-1].set_xlabel("Time [s]")
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
