@@ -1,6 +1,6 @@
 # Data
 # /data/
-data/raw
+data
 # Mac OS-specific storage files
 .DS_Store
 
