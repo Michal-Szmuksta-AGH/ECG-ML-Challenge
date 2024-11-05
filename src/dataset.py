@@ -40,6 +40,8 @@ def ann2vec(annotation: wfdb.Annotation, fs: int, samples: Union[None, int] = No
         raise ValueError("annotation must be a wfdb.Annotation object")
     if not isinstance(fs, int):
         raise ValueError("fs must be an integer")
+    if samples is not None and not isinstance(samples, int):
+        raise ValueError("samples must be an integer")
 
     if samples is None:
         samples = annotation.sample[-1]
@@ -54,3 +56,27 @@ def ann2vec(annotation: wfdb.Annotation, fs: int, samples: Union[None, int] = No
         ann_vec[start_sample:end_sample] = 1
 
     return ann_vec
+
+
+def split_data(data: np.ndarray, fs: int, chunk_size: int) -> np.ndarray:
+    """
+    Split ECG data into chunks.
+
+    :param data: ECG data.
+    :param fs: Sampling frequency.
+    :param chunk_size: Number of samples per chunk.
+    :return: Chunks of ECG data.
+    """
+    if not isinstance(data, np.ndarray):
+        raise ValueError("data must be a numpy array")
+    if not isinstance(fs, int):
+        raise ValueError("fs must be an integer")
+    if not isinstance(chunk_size, int):
+        raise ValueError("chunk_size must be an integer")
+
+    num_samples = data.shape[0]
+    num_chunks = num_samples // chunk_size
+
+    chunks = [data[i * chunk_size : (i + 1) * chunk_size] for i in range(num_chunks)]
+
+    return np.array(chunks)

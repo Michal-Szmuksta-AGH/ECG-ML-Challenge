@@ -1,12 +1,15 @@
 import os
 import sys
 import unittest
+import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src import dataset
 
 TEST_DIR = "tmp"
-TEST_DATASET_DIR = os.abspath(os.path.join(TEST_DIR, "mit-bih-arrhythmia-database"))
+TEST_DATASET_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), TEST_DIR, "mit-bih-arrhythmia-database")
+)
 
 
 class TestDatasetDownload(unittest.TestCase):
@@ -71,6 +74,55 @@ class TestDatasetAnn2vec(unittest.TestCase):
         ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
         with self.assertRaises(ValueError):
             dataset.ann2vec(ann, 360, "650000")
+
+
+class TestDatasetSplitData(unittest.TestCase):
+    """
+    Test data splitting functions.
+    """
+
+    def test_split_data(self):
+        """
+        Test split_data function with valid input.
+        """
+        data = np.random.rand(1000)
+        fs = 250
+        chunk_size = 250
+        chunks = dataset.split_data(data, fs, chunk_size)
+        self.assertEqual(chunks.shape, (4, 250))
+
+    def test_split_data_type_error_data(self):
+        """
+        Test split_data function with data type error.
+        """
+        with self.assertRaises(ValueError):
+            dataset.split_data("not an array", 250, 250)
+
+    def test_split_data_type_error_fs(self):
+        """
+        Test split_data function with fs type error.
+        """
+        data = np.random.rand(1000)
+        with self.assertRaises(ValueError):
+            dataset.split_data(data, "250", 250)
+
+    def test_split_data_type_error_chunk_size(self):
+        """
+        Test split_data function with chunk_size type error.
+        """
+        data = np.random.rand(1000)
+        with self.assertRaises(ValueError):
+            dataset.split_data(data, 250, "250")
+
+    def test_split_data_incomplete_chunk(self):
+        """
+        Test split_data function with data that doesn't fit perfectly into chunks.
+        """
+        data = np.random.rand(1020)
+        fs = 250
+        chunk_size = 250
+        chunks = dataset.split_data(data, fs, chunk_size)
+        self.assertEqual(chunks.shape, (4, 250))
 
 
 if __name__ == "__main__":
