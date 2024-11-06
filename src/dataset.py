@@ -1,8 +1,18 @@
 import os
-import numpy as np
+import sys
 import wfdb
+import torch
+import typer
+import numpy as np
 from loguru import logger
 from typing import Union
+from wfdb import processing
+from tqdm import tqdm  # Add tqdm import
+
+from config import RAW_DATA_DIR, PROCESSED_DATA_DIR
+
+
+app = typer.Typer()
 
 
 def download_wfdb_dataset(dataset_name: str, dataset_dir: str) -> None:
@@ -80,3 +90,59 @@ def split_data(data: np.ndarray, fs: int, chunk_size: int) -> np.ndarray:
     chunks = [data[i * chunk_size : (i + 1) * chunk_size] for i in range(num_chunks)]
 
     return np.array(chunks)
+
+
+@app.command()
+def main(dataset_name: str, target_fs: int, verbosity: str = "INFO") -> None:
+    """
+    Load WFDB dataset.
+
+    :param dataset_name: Name of the dataset.
+    :param target_fs: Target sampling frequency.
+    :param verbosity: Verbosity level for logging.
+    """
+    logger.remove()
+    logger.add(sys.stderr, level=verbosity.upper())
+
+    dataset_dir = os.path.join(RAW_DATA_DIR, dataset_name)
+    download_wfdb_dataset(dataset_name, dataset_dir)
+
+    # Load ECG data
+    files = os.listdir(dataset_dir)
+    files = [file.split(".")[0] for file in files if file.endswith(".hea")]
+    logger.info(f"Processing {len(files)} ECG records...")
+
+    use_tqdm = verbosity.upper() != "DEBUG"
+    file_iterator = tqdm(files, desc="Processing files") if use_tqdm else files
+
+    for file in file_iterator:
+        record_name = file.split(".")[0]
+        logger.debug(f"Loading {record_name}...")
+        record = wfdb.rdrecord(os.path.join(dataset_dir, record_name))
+        annotation = wfdb.rdann(os.path.join(dataset_dir, record_name), "atr")
+
+        # Resample ECG data
+        logger.debug(f"Resampling {record_name} to {target_fs} Hz...")
+        resampled_x, resampled_ann = processing.resample_multichan(
+            record.p_signal, annotation, record.fs, target_fs
+        )
+        vector_ann = ann2vec(resampled_ann, target_fs)
+
+        # Save resampled ECG data
+        logger.debug(f"Saving {record_name}...")
+        os.makedirs(os.path.join(PROCESSED_DATA_DIR, dataset_name), exist_ok=True)
+        np.savez(
+            os.path.join(PROCESSED_DATA_DIR, dataset_name, f"{record_name}.npz"),
+            x=resampled_x,
+            y=vector_ann,
+        )
+        logger.debug(
+            f"{record_name} in {os.path.join(PROCESSED_DATA_DIR, dataset_name, record_name + '.npz')} saved."
+        )
+
+    logger.info(f"All ECG data saved to {os.path.join(PROCESSED_DATA_DIR, dataset_name)}")
+    return
+
+
+if __name__ == "__main__":
+    app()
