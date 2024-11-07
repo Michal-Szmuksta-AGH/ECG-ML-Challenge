@@ -5,11 +5,9 @@ import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src import dataset
+from .config import TEST_DATASET_DIR
 
-TEST_DIR = "tmp"
-TEST_DATASET_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), TEST_DIR, "mit-bih-arrhythmia-database")
-)
+
 
 
 class TestDatasetDownload(unittest.TestCase):
