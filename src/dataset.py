@@ -18,6 +18,7 @@ def download_wfdb_dataset(dataset_name: str, dataset_dir: str) -> None:
     if not os.path.exists(dataset_dir) or len(os.listdir(dataset_dir)) == 0:
         logger.info(f'{dataset_name} not found in {dataset_dir}.')
         logger.info(f'Downloading {dataset_name} database into {dataset_dir}...')
+        os.makedirs(dataset_dir, exist_ok=True)
         wfdb.dl_database(dataset_name, dl_dir=dataset_dir)
         logger.info(f'{dataset_name} database downloaded.')
     else:
