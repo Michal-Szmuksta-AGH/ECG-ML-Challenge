@@ -1,7 +1,7 @@
 import os
 import sys
 import wfdb
-import torch
+# import torch
 import typer
 import numpy as np
 from loguru import logger
@@ -9,7 +9,7 @@ from typing import Union
 from wfdb import processing
 from tqdm import tqdm  # Add tqdm import
 
-from config import RAW_DATA_DIR, PROCESSED_DATA_DIR
+from .config import RAW_DATA_DIR, PROCESSED_DATA_DIR
 
 
 app = typer.Typer()
