@@ -1,13 +1,12 @@
 import os
 import sys
 import wfdb
-# import torch
 import typer
 import numpy as np
 from loguru import logger
 from typing import Union
 from wfdb import processing
-from tqdm import tqdm  # Add tqdm import
+from tqdm import tqdm
 
 from .config import RAW_DATA_DIR, PROCESSED_DATA_DIR
 
@@ -37,9 +36,9 @@ def download_wfdb_dataset(dataset_name: str, dataset_dir: str) -> None:
         logger.info(f"{dataset_name} already exists in {dataset_dir}.")
 
 
-def ann2vec(annotation: wfdb.Annotation, fs: int, samples: Union[None, int] = None) -> np.ndarray:
+def sym2vec(annotation: wfdb.Annotation, fs: int, samples: Union[None, int] = None) -> np.ndarray:
     """
-    Convert WFDB annotation to vector.
+    Convert WFDB annotation symbol to vector.
 
     :param annotation: WFDB annotation object.
     :param fs: Sampling frequency.
@@ -64,6 +63,40 @@ def ann2vec(annotation: wfdb.Annotation, fs: int, samples: Union[None, int] = No
         end_sample = annotation.sample[i + 1] // 2 if i < len(annotation.sample) - 1 else samples
 
         ann_vec[start_sample:end_sample] = 1
+
+    return ann_vec
+
+def aux2vec(annotation: wfdb.Annotation, fs: int, samples: Union[None, int] = None) -> np.ndarray:
+    """
+    Convert WFDB annotation aux note to vector.
+
+    :param annotation: WFDB annotation object.
+    :param fs: Sampling frequency.
+    :param samples: Number of output samples.
+    :return: Annotation vector.
+    """
+    if not isinstance(annotation, wfdb.Annotation):
+        raise ValueError("annotation must be a wfdb.Annotation object")
+    if not isinstance(fs, int):
+        raise ValueError("fs must be an integer")
+    if samples is not None and not isinstance(samples, int):
+        raise ValueError("samples must be an integer")
+
+    if samples is None:
+        samples = annotation.sample[-1]
+
+    ann_vec = np.zeros(samples, dtype=np.uint8)
+    i = 0
+    while i < len(annotation.sample):
+        if annotation.aux_note[i] == "(AFIB":
+            j = i + 1
+            while j < len(annotation.sample):
+                if annotation.aux_note[j] != "(AFIB":
+                    ann_vec[annotation.sample[i]:annotation.sample[j]] = 1
+                    i = j
+                    break
+                j += 1
+        i += 1
 
     return ann_vec
 
@@ -118,15 +151,18 @@ def main(dataset_name: str, target_fs: int, verbosity: str = "INFO") -> None:
     for file in file_iterator:
         record_name = file.split(".")[0]
         logger.debug(f"Loading {record_name}...")
-        record = wfdb.rdrecord(os.path.join(dataset_dir, record_name))
-        annotation = wfdb.rdann(os.path.join(dataset_dir, record_name), "atr")
+        try:
+            record = wfdb.rdrecord(os.path.join(dataset_dir, record_name))
+            annotation = wfdb.rdann(os.path.join(dataset_dir, record_name), "atr")
+        except ValueError:
+            continue
 
         # Resample ECG data
         logger.debug(f"Resampling {record_name} to {target_fs} Hz...")
         resampled_x, resampled_ann = processing.resample_multichan(
             record.p_signal, annotation, record.fs, target_fs
         )
-        vector_ann = ann2vec(resampled_ann, target_fs)
+        vector_ann = aux2vec(resampled_ann, target_fs)
 
         # Save resampled ECG data
         logger.debug(f"Saving {record_name}...")

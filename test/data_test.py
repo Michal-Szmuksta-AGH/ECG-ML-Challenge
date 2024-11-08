@@ -40,7 +40,7 @@ class TestDatasetDownload(unittest.TestCase):
             dataset.download_wfdb_dataset("mitdb", 123)
 
 
-class TestDatasetAnn2vec(unittest.TestCase):
+class TestDatasetSym2vec(unittest.TestCase):
     """
     Test annotation conversion functions.
     """
@@ -49,8 +49,9 @@ class TestDatasetAnn2vec(unittest.TestCase):
         """
         Test ann2vec function.
         """
+        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
         ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
-        ann_vec = dataset.ann2vec(ann, 360, 650000)
+        ann_vec = dataset.sym2vec(ann, 360, 650000)
         self.assertEqual(ann_vec.shape, (650000,))
 
     def test_ann2vec_annotation_type_error(self):
@@ -58,23 +59,65 @@ class TestDatasetAnn2vec(unittest.TestCase):
         Test ann2vec function with error.
         """
         with self.assertRaises(ValueError):
-            dataset.ann2vec(123, 360, 650000)
+            dataset.sym2vec(123, 360, 650000)
 
     def test_ann2vec_fs_type_error(self):
         """
         Test ann2vec function with error.
         """
+        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
         ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
         with self.assertRaises(ValueError):
-            dataset.ann2vec(ann, "360", 650000)
+            dataset.sym2vec(ann, "360", 650000)
 
     def test_ann2vec_samples_type_error(self):
         """
         Test ann2vec function with error.
         """
+        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
         ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
         with self.assertRaises(ValueError):
-            dataset.ann2vec(ann, 360, "650000")
+            dataset.sym2vec(ann, 360, "650000")
+
+
+class TestDatasetAux2vec(unittest.TestCase):
+    """
+    Test aux note conversion functions.
+    """
+
+    def test_aux2vec(self):
+        """
+        Test aux2vec function.
+        """
+        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
+        ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
+        aux_vec = dataset.aux2vec(ann, 360, 650000)
+        self.assertEqual(aux_vec.shape, (650000,))
+
+    def test_aux2vec_annotation_type_error(self):
+        """
+        Test aux2vec function with error.
+        """
+        with self.assertRaises(ValueError):
+            dataset.aux2vec(123, 360, 650000)
+
+    def test_aux2vec_fs_type_error(self):
+        """
+        Test aux2vec function with error.
+        """
+        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
+        ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
+        with self.assertRaises(ValueError):
+            dataset.aux2vec(ann, "360", 650000)
+
+    def test_aux2vec_samples_type_error(self):
+        """
+        Test aux2vec function with error.
+        """
+        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
+        ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
+        with self.assertRaises(ValueError):
+            dataset.aux2vec(ann, 360, "650000")
 
 
 class TestDatasetSplitData(unittest.TestCase):
