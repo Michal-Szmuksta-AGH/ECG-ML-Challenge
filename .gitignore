@@ -3,6 +3,8 @@ reports/wandb/
 
 # Data
 # /data/
+*.pt
+*.pth
 data/
 test_data*/
 *tmp/

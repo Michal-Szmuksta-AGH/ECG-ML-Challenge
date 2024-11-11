@@ -7,6 +7,7 @@ import numpy as np
 import wfdb
 from loguru import logger
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import normalize
 from tqdm import tqdm
 from wfdb import processing
 
@@ -223,8 +224,8 @@ def save_chunks(chunks, info, save_dir, use_tqdm: bool) -> None:
             os.path.join(
                 save_dir, f"{dataset_name}_{file_name}_chunk{chunk_idx}_channel{channel}.npz"
             ),
-            x=chunk_x,
-            y=chunk_y,
+            x=normalize(chunk_x.reshape(-1, 1)).squeeze(),
+            y=normalize(chunk_y.reshape(-1, 1)).squeeze(),
         )
 
 
@@ -244,6 +245,7 @@ def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosit
     train_dir = TRAIN_DATA_DIR
     val_dir = VAL_DATA_DIR
     test_dir = TEST_DATA_DIR
+    os.makedirs(INTERIM_DATA_DIR, exist_ok=True)
     os.makedirs(train_dir, exist_ok=True)
     os.makedirs(val_dir, exist_ok=True)
     os.makedirs(test_dir, exist_ok=True)

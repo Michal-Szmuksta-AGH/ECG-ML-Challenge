@@ -5,9 +5,36 @@ import typer
 
 import dataset.processing as processing
 import model.training as training
+from model.models import LSTMModel
 from config import RAW_DATA_DIR, TRAIN_DATA_DIR, VAL_DATA_DIR
 
 app = typer.Typer()
+
+
+@app.command()
+def model_summary(model_type: str = "LSTM") -> None:
+    """
+    Print the summary of the specified model type.
+
+    :param model_type: Type of model to summarize.
+    """
+    if model_type == "LSTM":
+        model = LSTMModel()
+        print(model)
+        print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}")
+
+
+@app.command()
+def download_dataset(dataset_name: str, dataset_dir: str = RAW_DATA_DIR) -> None:
+    """
+    Download the specified WFDB dataset.
+
+    :param dataset_name: Name of the dataset to download.
+    :param dataset_dir: Directory to save the downloaded dataset.
+    """
+    processing.download_wfdb_dataset(dataset_name, os.path.join(dataset_dir, dataset_name))
 
 
 @app.command()
@@ -24,7 +51,7 @@ def clear_dataset(dataset_name: Union[str, None] = None, data_type: str = "both"
 @app.command()
 def preprocess_dataset(dataset_name: str, target_fs: int, verbosity: str = "INFO") -> None:
     """
-    Preprocess the WFDB dataset.
+    Preprocess the specified WFDB dataset.
 
     :param dataset_name: Name of the dataset.
     :param target_fs: Target sampling frequency.
