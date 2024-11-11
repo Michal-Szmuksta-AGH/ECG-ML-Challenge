@@ -21,7 +21,8 @@
 				"ms-vscode.makefile-tools",
 				"ms-azuretools.vscode-docker",
 				"mhutchie.git-graph",
-				"ms-python.black-formatter"
+				"ms-python.black-formatter",
+				"eamodio.gitlens"
 			],
             "settings": {
                 "files.autoSave": "afterDelay",
