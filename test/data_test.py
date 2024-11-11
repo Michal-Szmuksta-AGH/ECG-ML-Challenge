@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from src import dataset
+from src.dataset import processing
 
 TEST_DIR = "tmp"
 TEST_DATASET_DIR = os.path.abspath(
@@ -22,7 +22,7 @@ class TestDatasetDownload(unittest.TestCase):
         """
         Test download_wfdb_dataset function.
         """
-        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
+        processing.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
         self.assertTrue(os.path.exists(TEST_DATASET_DIR))
 
     def test_download_dataset_name_type_error(self):
@@ -30,14 +30,14 @@ class TestDatasetDownload(unittest.TestCase):
         Test download_wfdb_dataset function with error.
         """
         with self.assertRaises(ValueError):
-            dataset.download_wfdb_dataset(123, TEST_DATASET_DIR)
+            processing.download_wfdb_dataset(123, TEST_DATASET_DIR)
 
     def test_download_dataset_dir_type_error(self):
         """
         Test download_wfdb_dataset function with error.
         """
         with self.assertRaises(ValueError):
-            dataset.download_wfdb_dataset("mitdb", 123)
+            processing.download_wfdb_dataset("mitdb", 123)
 
 
 class TestDatasetSym2vec(unittest.TestCase):
@@ -49,9 +49,9 @@ class TestDatasetSym2vec(unittest.TestCase):
         """
         Test ann2vec function.
         """
-        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
-        ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
-        ann_vec = dataset.sym2vec(ann, 360, 650000)
+        processing.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
+        ann = processing.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
+        ann_vec = processing.sym2vec(ann, 360, 650000)
         self.assertEqual(ann_vec.shape, (650000,))
 
     def test_ann2vec_annotation_type_error(self):
@@ -59,25 +59,25 @@ class TestDatasetSym2vec(unittest.TestCase):
         Test ann2vec function with error.
         """
         with self.assertRaises(ValueError):
-            dataset.sym2vec(123, 360, 650000)
+            processing.sym2vec(123, 360, 650000)
 
     def test_ann2vec_fs_type_error(self):
         """
         Test ann2vec function with error.
         """
-        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
-        ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
+        processing.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
+        ann = processing.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
         with self.assertRaises(ValueError):
-            dataset.sym2vec(ann, "360", 650000)
+            processing.sym2vec(ann, "360", 650000)
 
     def test_ann2vec_samples_type_error(self):
         """
         Test ann2vec function with error.
         """
-        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
-        ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
+        processing.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
+        ann = processing.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
         with self.assertRaises(ValueError):
-            dataset.sym2vec(ann, 360, "650000")
+            processing.sym2vec(ann, 360, "650000")
 
 
 class TestDatasetAux2vec(unittest.TestCase):
@@ -89,9 +89,9 @@ class TestDatasetAux2vec(unittest.TestCase):
         """
         Test aux2vec function.
         """
-        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
-        ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
-        aux_vec = dataset.aux2vec(ann, 360, 650000)
+        processing.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
+        ann = processing.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
+        aux_vec = processing.aux2vec(ann, 360, 650000)
         self.assertEqual(aux_vec.shape, (650000,))
 
     def test_aux2vec_annotation_type_error(self):
@@ -99,25 +99,25 @@ class TestDatasetAux2vec(unittest.TestCase):
         Test aux2vec function with error.
         """
         with self.assertRaises(ValueError):
-            dataset.aux2vec(123, 360, 650000)
+            processing.aux2vec(123, 360, 650000)
 
     def test_aux2vec_fs_type_error(self):
         """
         Test aux2vec function with error.
         """
-        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
-        ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
+        processing.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
+        ann = processing.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
         with self.assertRaises(ValueError):
-            dataset.aux2vec(ann, "360", 650000)
+            processing.aux2vec(ann, "360", 650000)
 
     def test_aux2vec_samples_type_error(self):
         """
         Test aux2vec function with error.
         """
-        dataset.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
-        ann = dataset.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
+        processing.download_wfdb_dataset("mitdb", TEST_DATASET_DIR)
+        ann = processing.wfdb.rdann(os.path.join(TEST_DATASET_DIR, "100"), "atr")
         with self.assertRaises(ValueError):
-            dataset.aux2vec(ann, 360, "650000")
+            processing.aux2vec(ann, 360, "650000")
 
 
 class TestDatasetSplitData(unittest.TestCase):
@@ -132,7 +132,7 @@ class TestDatasetSplitData(unittest.TestCase):
         data = np.random.rand(1000)
         fs = 250
         chunk_size = 250
-        chunks = dataset.split_data(data, fs, chunk_size)
+        chunks = processing.split_data(data, fs, chunk_size)
         self.assertEqual(chunks.shape, (4, 250))
 
     def test_split_data_type_error_data(self):
@@ -140,7 +140,7 @@ class TestDatasetSplitData(unittest.TestCase):
         Test split_data function with data type error.
         """
         with self.assertRaises(ValueError):
-            dataset.split_data("not an array", 250, 250)
+            processing.split_data("not an array", 250, 250)
 
     def test_split_data_type_error_fs(self):
         """
@@ -148,7 +148,7 @@ class TestDatasetSplitData(unittest.TestCase):
         """
         data = np.random.rand(1000)
         with self.assertRaises(ValueError):
-            dataset.split_data(data, "250", 250)
+            processing.split_data(data, "250", 250)
 
     def test_split_data_type_error_chunk_size(self):
         """
@@ -156,7 +156,7 @@ class TestDatasetSplitData(unittest.TestCase):
         """
         data = np.random.rand(1000)
         with self.assertRaises(ValueError):
-            dataset.split_data(data, 250, "250")
+            processing.split_data(data, 250, "250")
 
     def test_split_data_incomplete_chunk(self):
         """
@@ -165,7 +165,7 @@ class TestDatasetSplitData(unittest.TestCase):
         data = np.random.rand(1020)
         fs = 250
         chunk_size = 250
-        chunks = dataset.split_data(data, fs, chunk_size)
+        chunks = processing.split_data(data, fs, chunk_size)
         self.assertEqual(chunks.shape, (4, 250))
 
 

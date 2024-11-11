@@ -22,9 +22,10 @@ optree>=0.13.0
 matplotlib
 wandb
 jupyterlab
-black
-pre-commit
 optuna
 wfdb
 pytest
 loguru
+typer
+scikit-learn
+torchmetrics

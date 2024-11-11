@@ -1,7 +1,8 @@
-import wfdb
-import numpy as np
+from typing import Iterable, Union
+
 import matplotlib.pyplot as plt
-from typing import Union, Iterable
+import numpy as np
+import wfdb
 
 
 def plot_ecg(

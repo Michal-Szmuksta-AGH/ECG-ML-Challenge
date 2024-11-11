@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from src.utilities.dataloader import ECGDataset, ECGDataLoader
+from src.dataset.dataloaders import ECGDataset, ECGDataLoader
 
 class TestECGDataset(unittest.TestCase):
 

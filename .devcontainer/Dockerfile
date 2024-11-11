@@ -7,6 +7,7 @@ RUN apt-get update && \
     git \
     wget \
     nano \
+    make \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -16,7 +17,7 @@ COPY .devcontainer/requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt
 
-RUN pip install black pre-commit
+RUN pip install black pre-commit flake8 isort
 
 COPY . /app
 
