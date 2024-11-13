@@ -1,9 +1,6 @@
 import os
 
 from src import config  # noqa: F401
-from .plots import plot_ecg
-
-__all__ = ['plot_ecg']
 
 os.makedirs(config.DATA_DIR, exist_ok=True)
 os.makedirs(config.RAW_DATA_DIR, exist_ok=True)

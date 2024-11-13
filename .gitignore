@@ -1,6 +1,12 @@
+# Wandb
+reports/wandb/
+
 # Data
 # /data/
-data/raw
+*.pt
+*.pth
+data/
+test_data*/
 *tmp/
 # Mac OS-specific storage files
 .DS_Store

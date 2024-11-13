@@ -1,7 +1,8 @@
-import wfdb
-import numpy as np
+from typing import Iterable, Union
+
 import matplotlib.pyplot as plt
-from typing import Union, Iterable
+import numpy as np
+import wfdb
 
 
 def plot_ecg(
@@ -20,6 +21,7 @@ def plot_ecg(
     :param channels: List of channels to plot. If -1, plot all channels.
     :param t_start: Start time of the plot.
     :param t_end: End time of the plot. If None, plot the whole signal.
+    :param annotation: Annotation object.
     """
     if not isinstance(record, (np.ndarray, wfdb.Record)):
         raise ValueError("record must be a numpy array or wfdb.Record object")
@@ -77,20 +79,37 @@ def plot_ecg(
         if annotation is not None:
             mask = (annotation.sample >= t_start * fs) & (annotation.sample < t_end * fs)
             ann_samples = annotation.sample[mask]
-            ann_symbols = np.array(annotation.symbol)[mask]
+            ann_aux_notes = np.array(annotation.aux_note)[mask]
 
-            y_pos = signal[ann_samples, channel]
+            y_pos = signal[ann_samples, channel] + np.max(signal[:, channel]) * 0.3
 
-            for sample, symbol, y in zip(ann_samples, ann_symbols, y_pos):
-                if symbol != "N":
+            for sample, aux_note, y in zip(ann_samples, ann_aux_notes, y_pos):
+                if aux_note != "(N":
                     ax[i].annotate(
-                        symbol,
+                        aux_note,
                         (sample / fs, y),
                         xytext=(0, 10),
                         textcoords="offset points",
                         ha="center",
                         color="red",
                     )
+
+            j = 0
+            while j < len(ann_samples):
+                if ann_aux_notes[j] == "(AFIB":
+                    k = j + 1
+                    while k < len(ann_samples):
+                        if ann_aux_notes[k] != "(AFIB":
+                            ax[i].axvspan(
+                                ann_samples[j] / fs,
+                                ann_samples[k] / fs,
+                                color="red",
+                                alpha=0.2,
+                            )
+                            j = k
+                            break
+                        k += 1
+                j += 1
 
     ax[-1].set_xlabel("Time [s]")
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
