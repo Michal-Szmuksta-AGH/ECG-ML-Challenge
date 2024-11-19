@@ -5,25 +5,22 @@ import typer
 
 import dataset.processing as processing
 import model.training as training
-from model.models import LSTMModel
 from config import RAW_DATA_DIR, TRAIN_DATA_DIR, VAL_DATA_DIR
+from model.models import get_model
 
 app = typer.Typer()
 
 
 @app.command()
-def model_summary(model_type: str = "LSTM") -> None:
+def model_summary(model_type: str = "LSTMModel") -> None:
     """
     Print the summary of the specified model type.
 
     :param model_type: Type of model to summarize.
     """
-    if model_type == "LSTM":
-        model = LSTMModel()
-        print(model)
-        print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
-    else:
-        raise ValueError(f"Unsupported model type: {model_type}")
+    model = get_model(model_type)
+    print(model)
+    print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
 
 
 @app.command()
@@ -106,7 +103,7 @@ def train_model(
     epochs: int = 10,
     batch_size: int = 16,
     learning_rate: float = 0.001,
-    model_type: str = "LSTM",
+    model_type: str = "LSTMModel",
     train_data_dir: str = TRAIN_DATA_DIR,
     val_data_dir: str = VAL_DATA_DIR,
     verbosity: str = "INFO",
