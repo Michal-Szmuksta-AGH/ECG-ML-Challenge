@@ -22,6 +22,10 @@ MODELS_DIR = PROJ_ROOT / "models"
 REPORTS_DIR = PROJ_ROOT / "reports"
 FIGURES_DIR = REPORTS_DIR / "figures"
 
+MINIMAL_RUNTIME_DIR = PROJ_ROOT / "minimal_runtime"
+
+SRC_DIR = PROJ_ROOT / "src"
+
 os.environ["WANDB_DIR"] = str(REPORTS_DIR)
 
 # If tqdm is installed, configure loguru with tqdm.write

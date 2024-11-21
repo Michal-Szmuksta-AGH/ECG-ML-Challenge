@@ -1,11 +1,18 @@
 import os
-from typing import Union
-
 import typer
+import shutil
+from typing import Union
+from loguru import logger
 
 import dataset.processing as processing
 import model.training as training
-from config import RAW_DATA_DIR, TRAIN_DATA_DIR, VAL_DATA_DIR
+from config import (
+    RAW_DATA_DIR,
+    TRAIN_DATA_DIR,
+    VAL_DATA_DIR,
+    MINIMAL_RUNTIME_DIR,
+    SRC_DIR,
+)
 from model.models import get_model
 
 app = typer.Typer()
@@ -131,6 +138,47 @@ def train_model(
         verbosity=verbosity,
         resume_model=resume_model,
     )
+
+
+@app.command()
+def package_runtime(
+    model_file: str, model_type: str, trained_chunk_size: int, trained_fs: int
+) -> None:
+    """
+    Package the minimal runtime of the project into a zip file.
+
+    :param model_file: Name of the model file to include.
+    :param model_type: Type of the model.
+    :param trained_chunk_size: Chunk size used during training.
+    :param trained_fs: Sampling frequency used during training.
+    """
+    logger.info(f'Packaging minimal runtime with model file "{model_file}"')
+
+    os.makedirs(MINIMAL_RUNTIME_DIR, exist_ok=True)
+
+    model_src = os.path.join(model_file)
+    model_dst = os.path.join(MINIMAL_RUNTIME_DIR, model_file.split("/")[-1])
+    logger.info(f"Copying model file from {model_src} to {model_dst}")
+    shutil.copy(model_src, model_dst)
+
+    models_src = os.path.join(SRC_DIR, "model", "models.py")
+    models_dst = os.path.join(MINIMAL_RUNTIME_DIR, "models.py")
+    logger.info(f"Copying models.py from {models_src} to {models_dst}")
+    shutil.copy(models_src, models_dst)
+
+    logger.info("Creating config.py")
+    config_path = os.path.join(MINIMAL_RUNTIME_DIR, "config.py")
+    if os.path.exists(config_path):
+        os.remove(config_path)
+    with open(config_path, "w") as config_file:
+        config_file.write(f"TRAINED_MODEL_TYPE = '{model_type}'\n")
+        config_file.write(f"TRAINED_CHUNK_SIZE = {trained_chunk_size}\n")
+        config_file.write(f"TRAINED_FS = {trained_fs}\n")
+        config_file.write(f"MODEL_FILE = '{model_file.split('/')[-1]}'\n")
+        config_file.write(f"DEST_DIR = './'\n")
+
+    logger.info(f"Creating zip file: {MINIMAL_RUNTIME_DIR}.zip")
+    shutil.make_archive(MINIMAL_RUNTIME_DIR, "zip", MINIMAL_RUNTIME_DIR)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,16 @@
 import inspect
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from loguru import logger
 
 
 def get_model(model_type: str, *args, **kwargs):
+    """
+    Get the model class based on the model type.
+
+    :param model_type: Type of model to get.
+    """
     model_classes = {
         name: cls
         for name, cls in globals().items()
@@ -14,6 +19,7 @@ def get_model(model_type: str, *args, **kwargs):
     if model_type in model_classes:
         return model_classes[model_type](*args, **kwargs)
     else:
+        logger.error(f"Unknown model type: {model_type}")
         raise ValueError(f"Unknown model type: {model_type}")
 
 
@@ -183,7 +189,13 @@ class GPTMultiScaleConvGRUModel(nn.Module):
 
 
 class GRUModel(nn.Module):
-    def __init__(self, input_size: int, hidden_size: int, num_layers: int, output_size: int):
+    def __init__(
+        self,
+        input_size: int = 1000,
+        hidden_size: int = 16,
+        num_layers: int = 1,
+        output_size: int = 1000,
+    ):
         super(GRUModel, self).__init__()
         self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True)
         self.fc = nn.Linear(hidden_size, output_size)
