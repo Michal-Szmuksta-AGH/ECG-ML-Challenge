@@ -121,9 +121,10 @@ def save_model_and_report(
     torch.save(model.state_dict(), model_save_path)
     logger.info(f"Model saved to {model_save_path}")
 
-    # FIXME
-    wandb.save(model_save_path)
-    logger.info(f"wandb report saved to {model_save_path}")
+    artifact = wandb.Artifact(name=model_filename, type="model")
+    artifact.add_file(model_save_path)
+    wandb.log_artifact(artifact)
+    logger.info(f"Model artifact logged to wandb")
 
 
 def train_model(
@@ -134,6 +135,7 @@ def train_model(
     train_data_dir: str = TRAIN_DATA_DIR,
     val_data_dir: str = VAL_DATA_DIR,
     verbosity: str = "INFO",
+    resume_model: str = None,
 ) -> None:
     """
     Train the model with the specified options.
@@ -146,6 +148,7 @@ def train_model(
     :param test_data_dir: Directory for test data.
     :param val_data_dir: Directory for validation data.
     :param verbosity: Logging verbosity level.
+    :param resume_model: Path to a saved model to resume training from. If None, train from scratch.
     """
     wandb.init(
         project="ECG-ML-Challenge",
@@ -169,7 +172,12 @@ def train_model(
     if model_type == "LSTM":
         model = LSTMModel().to(device)
     else:
+        logger.error(f"Unsupported model type: {model_type}")
         raise ValueError(f"Unsupported model type: {model_type}")
+
+    if resume_model:
+        model.load_state_dict(torch.load(resume_model))
+        logger.info(f"Resumed training from model: {resume_model}")
 
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)

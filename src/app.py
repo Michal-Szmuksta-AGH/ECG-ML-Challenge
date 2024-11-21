@@ -110,6 +110,7 @@ def train_model(
     train_data_dir: str = TRAIN_DATA_DIR,
     val_data_dir: str = VAL_DATA_DIR,
     verbosity: str = "INFO",
+    resume_model: str = None,
 ) -> None:
     """
     Train the model with the specified options.
@@ -121,6 +122,7 @@ def train_model(
     :param train_data_dir: Directory for training data.
     :param val_data_dir: Directory for validation data.
     :param verbosity: Logging verbosity level.
+    :param resume_model: Path to a pre-trained model to resume training. If None, train from scratch.
     """
     training.train_model(
         epochs=epochs,
@@ -130,6 +132,7 @@ def train_model(
         train_data_dir=train_data_dir,
         val_data_dir=val_data_dir,
         verbosity=verbosity,
+        resume_model=resume_model,
     )
 
 

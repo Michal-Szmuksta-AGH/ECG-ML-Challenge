@@ -1,0 +1,17 @@
+astunparse
+expecttest>=0.2.1
+hypothesis
+numpy==1.24.1
+psutil
+
+setuptools<=72.1.0
+types-dataclasses
+typing-extensions>=4.10.0
+sympy==1.13.1 ; python_version >= "3.9"
+filelock
+fsspec
+
+wandb
+wfdb
+scikit-learn
+torchmetrics
