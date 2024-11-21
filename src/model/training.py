@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 from config import MODELS_DIR, TRAIN_DATA_DIR, VAL_DATA_DIR
 from dataset.dataloaders import ECGDataset
-from model.models import LSTMModel
+from model.models import get_model
 
 
 def train(
@@ -131,7 +131,7 @@ def train_model(
     epochs: int = 10,
     batch_size: int = 16,
     learning_rate: float = 0.001,
-    model_type: str = "LSTM",
+    model_type: str = "LSTMModel",
     train_data_dir: str = TRAIN_DATA_DIR,
     val_data_dir: str = VAL_DATA_DIR,
     verbosity: str = "INFO",
@@ -169,11 +169,7 @@ def train_model(
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-    if model_type == "LSTM":
-        model = LSTMModel().to(device)
-    else:
-        logger.error(f"Unsupported model type: {model_type}")
-        raise ValueError(f"Unsupported model type: {model_type}")
+    model = get_model(model_type).to(device)
 
     if resume_model:
         model.load_state_dict(torch.load(resume_model))

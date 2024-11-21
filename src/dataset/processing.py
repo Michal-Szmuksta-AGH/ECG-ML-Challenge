@@ -228,7 +228,10 @@ def save_chunks(chunks, info, save_dir, use_tqdm: bool) -> None:
             y=normalize(chunk_y.reshape(-1, 1)).squeeze(),
         )
 
-def split_chunks(all_chunks: list, file_info: list, chunk_size: int, test_size: float, val_size: float) -> tuple:
+
+def split_chunks(
+    all_chunks: list, file_info: list, chunk_size: int, test_size: float, val_size: float
+) -> tuple:
     """
     Split proportionally chunks to sets.
 
@@ -241,7 +244,9 @@ def split_chunks(all_chunks: list, file_info: list, chunk_size: int, test_size: 
     combined = list(zip(all_chunks, file_info))
     with_afib = [chunk for chunk in combined if np.sum(chunk[0][1]) > chunk_size * 0.1]
     without_afib = [chunk for chunk in combined if np.sum(chunk[0][1]) <= chunk_size * 0.1]
-    logger.info(f"{len(with_afib)/len(all_chunks) * 100:.2f} % chunks contains atrial fibrillation")
+    logger.info(
+        f"{len(with_afib)/len(all_chunks) * 100:.2f} % chunks contains atrial fibrillation"
+    )
 
     def split_group(group):
         chunks, file_info = zip(*group)
@@ -252,10 +257,24 @@ def split_chunks(all_chunks: list, file_info: list, chunk_size: int, test_size: 
             temp_chunks, temp_info, test_size=test_size / (test_size + val_size), random_state=42
         )
         return train_chunks, train_info, val_chunks, test_chunks, val_info, test_info
-    
-    train_chunks_afib, train_info_afib, val_chunks_afib, test_chunks_afib, val_info_afib, test_info_afib = split_group(with_afib)
-    train_chunks_NOafib, train_info_NOafib, val_chunks_NOafib, test_chunks_NOafib, val_info_NOafib, test_info_NOafib = split_group(without_afib)
-    
+
+    (
+        train_chunks_afib,
+        train_info_afib,
+        val_chunks_afib,
+        test_chunks_afib,
+        val_info_afib,
+        test_info_afib,
+    ) = split_group(with_afib)
+    (
+        train_chunks_NOafib,
+        train_info_NOafib,
+        val_chunks_NOafib,
+        test_chunks_NOafib,
+        val_info_NOafib,
+        test_info_NOafib,
+    ) = split_group(without_afib)
+
     train_chunks = train_chunks_afib + train_chunks_NOafib
     val_chunks = val_chunks_afib + val_chunks_NOafib
     test_chunks = test_chunks_afib + test_chunks_NOafib
@@ -275,6 +294,7 @@ def split_chunks(all_chunks: list, file_info: list, chunk_size: int, test_size: 
     test_chunks, test_info = shuffle_together(test_chunks, test_info)
 
     return train_chunks, train_info, val_chunks, val_info, test_chunks, test_info
+
 
 def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosity: str) -> None:
     """
@@ -339,7 +359,9 @@ def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosit
         f"Splitting data into training, validation, and test sets with test size {test_size} and validation size {val_size}..."
     )
 
-    train_chunks, train_info, val_chunks, val_info, test_chunks, test_info = split_chunks(all_chunks, file_info, chunk_size, test_size, val_size)
+    train_chunks, train_info, val_chunks, val_info, test_chunks, test_info = split_chunks(
+        all_chunks, file_info, chunk_size, test_size, val_size
+    )
 
     logger.info(f"Saving training data to {train_dir}...")
     save_chunks(train_chunks, train_info, train_dir, use_tqdm)
