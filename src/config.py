@@ -4,7 +4,8 @@ from pathlib import Path
 from loguru import logger
 
 PROJ_ROOT = Path(__file__).resolve().parents[1]
-logger.info(f"PROJ_ROOT path is: {PROJ_ROOT}")
+# Zakomentowałem bo wkurwiał mnie ten komunikat wyświetlany absolutnie wszędzie
+# logger.info(f"PROJ_ROOT path is: {PROJ_ROOT}")
 
 DATA_DIR = PROJ_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"

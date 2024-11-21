@@ -8,6 +8,7 @@ RUN apt-get update && \
     wget \
     nano \
     make \
+    openssh-client \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -27,10 +28,14 @@ RUN black --line-length 120 . && \
     pre-commit run --all-files || echo "Pre-commit hook finished with modified files."
 
 # Instalacja pipx i poetry
-RUN python3 -m pip install --user pipx
-RUN python3 -m pipx ensurepath
-RUN python3 -m pipx completions
-RUN python3 -m pipx install poetry
+RUN python3 -m pip install --user pipx && \
+    python3 -m pipx ensurepath && \
+    python3 -m pipx completions && \
+    python3 -m pipx install poetry
+
+RUN typer --install-completion && \
+    typer --install-completion
+
 
 RUN echo "eval \"\$(register-python-argcomplete pipx)\"" >> ~/.bashrc
 
