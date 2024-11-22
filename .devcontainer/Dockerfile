@@ -33,8 +33,8 @@ RUN python3 -m pip install --user pipx && \
     python3 -m pipx completions && \
     python3 -m pipx install poetry
 
-RUN typer --install-completion && \
-    typer --install-completion
+# RUN typer --install-completion && \
+#     typer --install-completion
 
 
 RUN echo "eval \"\$(register-python-argcomplete pipx)\"" >> ~/.bashrc
