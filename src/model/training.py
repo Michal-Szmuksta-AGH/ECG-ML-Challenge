@@ -176,7 +176,7 @@ def train_model(
     model = torch.compile(model)
     model = model.to(device)
 
-    criterion = nn.BCELoss()
+    criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     for epoch in range(wandb.config.epochs):

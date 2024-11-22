@@ -142,20 +142,29 @@ class GPTMultiScaleConvGRUModel(nn.Module):
 
         # First scale
         self.conv1_1 = nn.Conv1d(1, 16, kernel_size=3, padding=1)
+        self.bn1_1 = nn.BatchNorm1d(16)
         self.conv1_2 = nn.Conv1d(16, 32, kernel_size=3, padding=1)
+        self.bn1_2 = nn.BatchNorm1d(32)
         self.conv1_3 = nn.Conv1d(32, 64, kernel_size=3, padding=1)
+        self.bn1_3 = nn.BatchNorm1d(64)
         self.shortcut1 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
 
         # Second scale
         self.conv2_1 = nn.Conv1d(1, 16, kernel_size=7, padding=3)
+        self.bn2_1 = nn.BatchNorm1d(16)
         self.conv2_2 = nn.Conv1d(16, 32, kernel_size=7, padding=3)
+        self.bn2_2 = nn.BatchNorm1d(32)
         self.conv2_3 = nn.Conv1d(32, 64, kernel_size=7, padding=3)
+        self.bn2_3 = nn.BatchNorm1d(64)
         self.shortcut2 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
 
         # Third scale
         self.conv3_1 = nn.Conv1d(1, 16, kernel_size=15, padding=7)
+        self.bn3_1 = nn.BatchNorm1d(16)
         self.conv3_2 = nn.Conv1d(16, 32, kernel_size=15, padding=7)
+        self.bn3_2 = nn.BatchNorm1d(32)
         self.conv3_3 = nn.Conv1d(32, 64, kernel_size=15, padding=7)
+        self.bn3_3 = nn.BatchNorm1d(64)
         self.shortcut3 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
 
         # Layer normalization
@@ -180,21 +189,21 @@ class GPTMultiScaleConvGRUModel(nn.Module):
         x = x.unsqueeze(1)
 
         # First scale with skip connection
-        x1 = F.relu(self.conv1_1(x))
-        x1 = F.relu(self.conv1_2(x1))
-        x1 = F.relu(self.conv1_3(x1) + self.shortcut1(x))  # Skip connection
+        x1 = F.relu(self.bn1_1(self.conv1_1(x)))
+        x1 = F.relu(self.bn1_2(self.conv1_2(x1)))
+        x1 = F.relu(self.bn1_3(self.conv1_3(x1) + self.shortcut1(x)))  # Skip connection
         x1 = F.adaptive_max_pool1d(x1, output_size=x.size(-1))
 
         # Second scale with skip connection
-        x2 = F.relu(self.conv2_1(x))
-        x2 = F.relu(self.conv2_2(x2))
-        x2 = F.relu(self.conv2_3(x2) + self.shortcut2(x))  # Skip connection
+        x2 = F.relu(self.bn2_1(self.conv2_1(x)))
+        x2 = F.relu(self.bn2_2(self.conv2_2(x2)))
+        x2 = F.relu(self.bn2_3(self.conv2_3(x2) + self.shortcut2(x)))  # Skip connection
         x2 = F.adaptive_max_pool1d(x2, output_size=x.size(-1))
 
         # Third scale with skip connection
-        x3 = F.relu(self.conv3_1(x))
-        x3 = F.relu(self.conv3_2(x3))
-        x3 = F.relu(self.conv3_3(x3) + self.shortcut3(x))  # Skip connection
+        x3 = F.relu(self.bn3_1(self.conv3_1(x)))
+        x3 = F.relu(self.bn3_2(self.conv3_2(x3)))
+        x3 = F.relu(self.bn3_3(self.conv3_3(x3) + self.shortcut3(x)))  # Skip connection
         x3 = F.adaptive_max_pool1d(x3, output_size=x.size(-1))
 
         # Concatenate features from all scales
@@ -210,7 +219,7 @@ class GPTMultiScaleConvGRUModel(nn.Module):
         # Fully connected layers
         x = F.relu(self.fc1(x))  # Shape: [batch_size, seq_length, 64]
         x = self.fc2(x)  # Shape: [batch_size, seq_length, 1]
-        x = torch.sigmoid(x)
+        # x = torch.sigmoid(x)
 
         return x.squeeze(-1)  # Output shape: [batch_size, seq_length]
 
