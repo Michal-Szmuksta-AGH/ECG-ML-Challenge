@@ -11,7 +11,7 @@ from sklearn.preprocessing import normalize
 from tqdm import tqdm
 from wfdb import processing
 
-from config import (
+from src.config import (
     INTERIM_DATA_DIR,
     PROCESSED_DATA_DIR,
     RAW_DATA_DIR,
@@ -96,10 +96,10 @@ def aux2vec(annotation: wfdb.Annotation, fs: int, samples: Union[None, int] = No
     ann_vec = np.zeros(samples, dtype=np.uint8)
     i = 0
     while i < len(annotation.sample):
-        if annotation.aux_note[i] == "(AFIB":
+        if "(AFIB" in annotation.aux_note[i]:
             j = i + 1
             while j < len(annotation.sample):
-                if annotation.aux_note[j] != "(AFIB":
+                if "(AFIB" not in annotation.aux_note[j]:
                     ann_vec[annotation.sample[i] : annotation.sample[j]] = 1
                     i = j
                     break
