@@ -156,15 +156,24 @@ def package_runtime(
 
     os.makedirs(MINIMAL_RUNTIME_DIR, exist_ok=True)
 
+    logger.info("Clearing existing model files")
+    existing_model_files = os.listdir(MINIMAL_RUNTIME_DIR)
+    existing_model_files = [
+        f for f in existing_model_files if f.endswith(".pth") or f.endswith(".pt")
+    ]
+    for existing_model_file in existing_model_files:
+        os.remove(os.path.join(MINIMAL_RUNTIME_DIR, existing_model_file))
+    logger.info(f"Cleared {len(existing_model_files)} existing model files")
+
     model_src = os.path.join(model_file)
     model_dst = os.path.join(MINIMAL_RUNTIME_DIR, model_file.split("/")[-1])
     logger.info(f"Copying model file from {model_src} to {model_dst}")
     shutil.copy(model_src, model_dst)
 
-    models_src = os.path.join(SRC_DIR, "model", "models.py")
-    models_dst = os.path.join(MINIMAL_RUNTIME_DIR, "models.py")
-    logger.info(f"Copying models.py from {models_src} to {models_dst}")
-    shutil.copy(models_src, models_dst)
+    model_class_src = os.path.join(SRC_DIR, "model", "models.py")
+    model_class_dst = os.path.join(MINIMAL_RUNTIME_DIR, "models.py")
+    logger.info(f"Copying models.py from {model_class_src} to {model_class_dst}")
+    shutil.copy(model_class_src, model_class_dst)
 
     logger.info("Creating config.py")
     config_path = os.path.join(MINIMAL_RUNTIME_DIR, "config.py")
