@@ -24,7 +24,10 @@ def get_model(model_type: str, *args, **kwargs):
 
 
 class LSTMModel(nn.Module):
-    def __init__(self):
+    def __init__(self) -> None:
+        """
+        Initialize the LSTMModel.
+        """
         super(LSTMModel, self).__init__()
         self.conv1 = nn.Conv1d(in_channels=1, out_channels=16, kernel_size=5, padding=2)
         self.conv2 = nn.Conv1d(in_channels=16, out_channels=32, kernel_size=5, padding=2)
@@ -34,7 +37,13 @@ class LSTMModel(nn.Module):
         )
         self.fc = nn.Linear(64 * 2, 1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for the LSTMModel.
+
+        :param x: Input tensor of shape [batch_size, seq_length].
+        :return: Output tensor of shape [batch_size, seq_length].
+        """
         x = x.unsqueeze(1)
         x = torch.relu(self.conv1(x))
         x = torch.relu(self.conv2(x))
@@ -47,7 +56,10 @@ class LSTMModel(nn.Module):
 
 
 class MultiScaleConvLSTMModel(nn.Module):
-    def __init__(self):
+    def __init__(self) -> None:
+        """
+        Initialize the MultiScaleConvLSTMModel.
+        """
         super(MultiScaleConvLSTMModel, self).__init__()
         # First scale
         self.conv1_1 = nn.Conv1d(in_channels=1, out_channels=16, kernel_size=3, padding=1)
@@ -76,7 +88,13 @@ class MultiScaleConvLSTMModel(nn.Module):
         )
         self.fc = nn.Linear(64 * 2, 1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for the MultiScaleConvLSTMModel.
+
+        :param x: Input tensor of shape [batch_size, seq_length].
+        :return: Output tensor of shape [batch_size, seq_length].
+        """
         x = x.unsqueeze(1)  # Add channel dimension, shape: [batch_size, 1, seq_length]
         seq_length = x.size(-1)  # Pobierz dynamiczną długość wejścia
 
@@ -116,7 +134,10 @@ class MultiScaleConvLSTMModel(nn.Module):
 
 
 class GPTMultiScaleConvGRUModel(nn.Module):
-    def __init__(self):
+    def __init__(self) -> None:
+        """
+        Initialize the GPTMultiScaleConvGRUModel.
+        """
         super(GPTMultiScaleConvGRUModel, self).__init__()
 
         # First scale
@@ -149,7 +170,13 @@ class GPTMultiScaleConvGRUModel(nn.Module):
         self.fc1 = nn.Linear(128 * 2, 64)
         self.fc2 = nn.Linear(64, 1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for the GPTMultiScaleConvGRUModel.
+
+        :param x: Input tensor of shape [batch_size, seq_length].
+        :return: Output tensor of shape [batch_size, seq_length].
+        """
         x = x.unsqueeze(1)
 
         # First scale with skip connection
@@ -195,13 +222,27 @@ class GRUModel(nn.Module):
         hidden_size: int = 16,
         num_layers: int = 1,
         output_size: int = 1000,
-    ):
+    ) -> None:
+        """
+        Initialize the GRUModel.
+
+        :param input_size: Size of the input features.
+        :param hidden_size: Number of features in the hidden state.
+        :param num_layers: Number of recurrent layers.
+        :param output_size: Size of the output features.
+        """
         super(GRUModel, self).__init__()
         self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True)
         self.fc = nn.Linear(hidden_size, output_size)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for the GRUModel.
+
+        :param x: Input tensor of shape [batch_size, seq_length, input_size].
+        :return: Output tensor of shape [batch_size, seq_length, output_size].
+        """
         out, _ = self.gru(x)
         out = self.fc(out)
         out = self.sigmoid(out)

@@ -11,7 +11,7 @@ from sklearn.preprocessing import normalize
 from tqdm import tqdm
 from wfdb import processing
 
-from config import (
+from src.config import (
     INTERIM_DATA_DIR,
     PROCESSED_DATA_DIR,
     RAW_DATA_DIR,

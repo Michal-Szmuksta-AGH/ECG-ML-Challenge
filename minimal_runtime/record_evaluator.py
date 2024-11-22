@@ -1,10 +1,11 @@
 import os
+import torch
 import numpy as np
 import wfdb.processing
-import torch
-from signal_reader import SignalReader
-from models import get_model
-from config import TRAINED_MODEL_TYPE, TRAINED_CHUNK_SIZE, TRAINED_FS, MODEL_FILE, DEST_DIR
+
+# from signal_reader import SignalReader
+from .models import get_model
+from .config import TRAINED_MODEL_TYPE, TRAINED_CHUNK_SIZE, TRAINED_FS, MODEL_FILE, DEST_DIR
 
 
 class RecordEvaluator:
@@ -14,14 +15,20 @@ class RecordEvaluator:
         self._model.load_state_dict(torch.load(f"./{MODEL_FILE}.pth"))
         self._model.eval()
 
-    def evaluate(self, signal_reader: SignalReader):
+    def evaluate(self, signal_reader):
         signal = signal_reader.read_signal()
         fs = signal_reader.read_fs()
 
         ch, sig_len = signal.shape
 
         if fs != TRAINED_FS:
-            signal = wfdb.processing.resample_sig(signal, fs, TRAINED_FS)
+            signals = []
+            for i in range(ch):
+                signal, _ = wfdb.processing.resample_sig(signal[i, ...], fs, TRAINED_FS)
+                signals.append(signal)
+            signal = np.array(signals)
+        
+        ch, sig_len = signal.shape
 
         if sig_len != TRAINED_CHUNK_SIZE:
             num_chunks = int(np.ceil(sig_len / TRAINED_CHUNK_SIZE))
@@ -31,6 +38,13 @@ class RecordEvaluator:
             if last_chunk_len < TRAINED_CHUNK_SIZE:
                 padding = np.zeros((ch, TRAINED_CHUNK_SIZE - last_chunk_len))
                 signal[-1] = np.concatenate((signal[-1], padding), axis=1)
+        
+        if sig_len % TRAINED_CHUNK_SIZE != 0:
+            padding = TRAINED_CHUNK_SIZE - (sig_len % TRAINED_CHUNK_SIZE)
+            signal = np.pad(signal, ((0, 0), (0, padding)), "constant")
+
+        num_chunks = sig_len // TRAINED_CHUNK_SIZE
+        chunks = [signal[i * TRAINED_CHUNK_SIZE : (i + 1) * TRAINED_CHUNK_SIZE] for i in range(num_chunks)]
 
         preds = []
         for chunk in signal:
@@ -49,5 +63,6 @@ class RecordEvaluator:
 
 if __name__ == "__main__":
     record_eval = RecordEvaluator()
-    signal_reader = SignalReader("./val_db/6.csv")
+    # signal_reader = SignalReader("./val_db/6.csv")
+    signal_reader = None
     record_eval.evaluate(signal_reader)
