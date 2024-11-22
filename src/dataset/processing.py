@@ -242,8 +242,8 @@ def split_chunks(
     :param val_size: Proportion of the dataset to include in the validation split.
     """
     combined = list(zip(all_chunks, file_info))
-    with_afib = [chunk for chunk in combined if np.sum(chunk[0][1]) > chunk_size * 0.1]
-    without_afib = [chunk for chunk in combined if np.sum(chunk[0][1]) <= chunk_size * 0.1]
+    with_afib = [chunk for chunk in combined if np.sum(chunk[0][1]) > chunk_size * 0.0]
+    without_afib = [chunk for chunk in combined if np.sum(chunk[0][1]) <= chunk_size * 0.0]
     logger.info(
         f"{len(with_afib)/len(all_chunks) * 100:.2f} % chunks contains atrial fibrillation"
     )
