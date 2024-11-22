@@ -4,16 +4,16 @@ import shutil
 from typing import Union
 from loguru import logger
 
-import dataset.processing as processing
-import model.training as training
-from config import (
+import src.dataset.processing as processing
+import src.model.training as training
+from src.config import (
     RAW_DATA_DIR,
     TRAIN_DATA_DIR,
     VAL_DATA_DIR,
     MINIMAL_RUNTIME_DIR,
     SRC_DIR,
 )
-from model.models import get_model
+from src.model.models import get_model
 
 app = typer.Typer()
 

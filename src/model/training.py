@@ -1,19 +1,19 @@
 import os
 import sys
-from datetime import datetime
-
+import wandb
 import torch
+import torchmetrics
 import torch.nn as nn
 import torch.optim as optim
-import torchmetrics
-import wandb
-from loguru import logger
-from torch.utils.data import DataLoader
-from tqdm import tqdm
 
-from config import MODELS_DIR, TRAIN_DATA_DIR, VAL_DATA_DIR
-from dataset.dataloaders import ECGDataset
-from model.models import get_model
+from tqdm import tqdm
+from loguru import logger
+from datetime import datetime
+from torch.utils.data import DataLoader
+
+from src.config import MODELS_DIR, TRAIN_DATA_DIR, VAL_DATA_DIR
+from src.dataset.dataloaders import ECGDataset
+from src.model.models import get_model
 
 
 def train(
@@ -166,14 +166,15 @@ def train_model(
 
     train_dataset = ECGDataset(directory=train_data_dir)
     val_dataset = ECGDataset(directory=val_data_dir)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
 
-    model = get_model(model_type).to(device)
-
+    model = get_model(model_type)
     if resume_model:
         model.load_state_dict(torch.load(resume_model))
         logger.info(f"Resumed training from model: {resume_model}")
+    model = torch.compile(model)
+    model = model.to(device)
 
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
