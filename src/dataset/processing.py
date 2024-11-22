@@ -152,14 +152,22 @@ def preprocess_record(
     try:
         record = wfdb.rdrecord(os.path.join(dataset_dir, record_name))
         annotation = wfdb.rdann(os.path.join(dataset_dir, record_name), "atr")
-    except ValueError:
-        return
+    except:
+        try:
+            record = wfdb.rdrecord(os.path.join(dataset_dir, record_name))
+            annotation = wfdb.rdann(os.path.join(dataset_dir, record_name), "qrs")
+        except:
+            return
+    
 
     logger.debug(f"Resampling {record_name} to {target_fs} Hz...")
     resampled_x, resampled_ann = processing.resample_multichan(
         record.p_signal, annotation, record.fs, target_fs
     )
-    vector_ann = aux2vec(resampled_ann, target_fs, resampled_x.shape[0])
+    if dataset_dir == "af-termination-challenge":
+        vector_ann = np.ones(resampled_x.shape[0], dtype=np.uint8)
+    else:
+        vector_ann = aux2vec(resampled_ann, target_fs, resampled_x.shape[0])
 
     logger.debug(f"Saving {record_name} to {interim_data_dir}...")
     os.makedirs(interim_data_dir, exist_ok=True)
