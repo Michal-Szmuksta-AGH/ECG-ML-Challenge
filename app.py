@@ -6,12 +6,16 @@ from loguru import logger
 
 import src.dataset.processing as processing
 import src.model.training as training
+import src.model.evaluate as evaluate
 from src.config import (
     RAW_DATA_DIR,
     TRAIN_DATA_DIR,
     VAL_DATA_DIR,
+    TEST_DATA_DIR,
+    MODELS_DIR,
     MINIMAL_RUNTIME_DIR,
     SRC_DIR,
+    FIGURES_DIR,
 )
 from src.model.models import get_model
 
@@ -103,7 +107,10 @@ def create_dataset(
     exclude_list = exclude_datasets.split(",") if exclude_datasets else []
 
     for dataset_name in os.listdir(RAW_DATA_DIR):
-        if os.path.isdir(os.path.join(RAW_DATA_DIR, dataset_name)) and dataset_name not in exclude_list:
+        if (
+            os.path.isdir(os.path.join(RAW_DATA_DIR, dataset_name))
+            and dataset_name not in exclude_list
+        ):
             processing.preprocess_dataset(dataset_name, target_fs, verbosity)
 
     processing.process_dataset(chunk_size, test_size, val_size, verbosity)
@@ -192,6 +199,26 @@ def package_runtime(
 
     logger.info(f"Creating zip file: {MINIMAL_RUNTIME_DIR}.zip")
     shutil.make_archive(MINIMAL_RUNTIME_DIR, "zip", MINIMAL_RUNTIME_DIR)
+
+
+@app.command()
+def evaluate_model(
+    model_type: str,
+    state_dict_name: str,
+    models_dataset_dir: str = MODELS_DIR,
+    num_samples: int = 1,
+) -> None:
+    """
+    Evaluate the trained model on a specified number of random samples from the test dataset.
+
+    :param model_type: Type of the model.
+    :param state_dict_name: Name of the state_dict file.
+    :param models_dataset_dir: Directory of the models dataset.
+    :param num_samples: Number of samples to evaluate.
+    """
+    evaluate.evaluate_model(
+        model_type, state_dict_name, TEST_DATA_DIR, models_dataset_dir, num_samples
+    )
 
 
 if __name__ == "__main__":

@@ -158,7 +158,6 @@ def preprocess_record(
             annotation = wfdb.rdann(os.path.join(dataset_dir, record_name), "qrs")
         except:
             return
-    
 
     logger.debug(f"Resampling {record_name} to {target_fs} Hz...")
     resampled_x, resampled_ann = processing.resample_multichan(
@@ -315,6 +314,7 @@ def count_classes(chunks):
     negative_count = len(chunks) - positive_count
     return positive_count, negative_count
 
+
 def display_class_ratios(pos_count, neg_count, set_name):
     """
     Display the ratio of negative to positive classes.
@@ -323,7 +323,7 @@ def display_class_ratios(pos_count, neg_count, set_name):
     :param neg_count: Number of negative classes.
     :param set_name: Name of the dataset split (train, val, test).
     """
-    ratio = neg_count / pos_count if pos_count > 0 else float('inf')
+    ratio = neg_count / pos_count if pos_count > 0 else float("inf")
     logger.info(f"{set_name} set: {neg_count} negative, {pos_count} positive, ratio: {ratio:.2f}")
 
 
