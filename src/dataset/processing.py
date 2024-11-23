@@ -303,6 +303,30 @@ def split_chunks(
 
     return train_chunks, train_info, val_chunks, val_info, test_chunks, test_info
 
+
+def count_classes(chunks):
+    """
+    Count the number of positive and negative classes in the chunks.
+
+    :param chunks: List of data chunks.
+    :return: Tuple containing the number of positive and negative classes.
+    """
+    positive_count = sum(np.sum(chunk[1]) > 0 for chunk in chunks)
+    negative_count = len(chunks) - positive_count
+    return positive_count, negative_count
+
+def display_class_ratios(pos_count, neg_count, set_name):
+    """
+    Display the ratio of negative to positive classes.
+
+    :param pos_count: Number of positive classes.
+    :param neg_count: Number of negative classes.
+    :param set_name: Name of the dataset split (train, val, test).
+    """
+    ratio = neg_count / pos_count if pos_count > 0 else float('inf')
+    logger.info(f"{set_name} set: {neg_count} negative, {pos_count} positive, ratio: {ratio:.2f}")
+
+
 def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosity: str) -> None:
     """
     Process the preprocessed dataset.
