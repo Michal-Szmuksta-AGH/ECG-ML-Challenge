@@ -152,14 +152,22 @@ def preprocess_record(
     try:
         record = wfdb.rdrecord(os.path.join(dataset_dir, record_name))
         annotation = wfdb.rdann(os.path.join(dataset_dir, record_name), "atr")
-    except ValueError:
-        return
+    except:
+        try:
+            record = wfdb.rdrecord(os.path.join(dataset_dir, record_name))
+            annotation = wfdb.rdann(os.path.join(dataset_dir, record_name), "qrs")
+        except:
+            return
+    
 
     logger.debug(f"Resampling {record_name} to {target_fs} Hz...")
     resampled_x, resampled_ann = processing.resample_multichan(
         record.p_signal, annotation, record.fs, target_fs
     )
-    vector_ann = aux2vec(resampled_ann, target_fs, resampled_x.shape[0])
+    if dataset_dir == "af-termination-challenge":
+        vector_ann = np.ones(resampled_x.shape[0], dtype=np.uint8)
+    else:
+        vector_ann = aux2vec(resampled_ann, target_fs, resampled_x.shape[0])
 
     logger.debug(f"Saving {record_name} to {interim_data_dir}...")
     os.makedirs(interim_data_dir, exist_ok=True)
@@ -295,7 +303,6 @@ def split_chunks(
 
     return train_chunks, train_info, val_chunks, val_info, test_chunks, test_info
 
-
 def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosity: str) -> None:
     """
     Process the preprocessed dataset.
@@ -371,6 +378,14 @@ def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosit
 
     logger.info(f"Saving test data to {test_dir}...")
     save_chunks(test_chunks, test_info, test_dir, use_tqdm)
+
+    train_pos, train_neg = count_classes(train_chunks)
+    val_pos, val_neg = count_classes(val_chunks)
+    test_pos, test_neg = count_classes(test_chunks)
+
+    display_class_ratios(train_pos, train_neg, "Training")
+    display_class_ratios(val_pos, val_neg, "Validation")
+    display_class_ratios(test_pos, test_neg, "Test")
 
     logger.info(f"All processed ECG data saved to {processed_data_dir}")
 

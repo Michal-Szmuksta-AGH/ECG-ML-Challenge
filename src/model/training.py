@@ -53,13 +53,18 @@ def train(
 
 
 def evaluate(
-    model: nn.Module, data_loader: DataLoader, device: torch.device, prefix: str = "Test"
+    model: nn.Module,
+    data_loader: DataLoader,
+    criterion: nn.Module,
+    device: torch.device,
+    prefix: str = "Test",
 ) -> None:
     """
     Evaluate the model on the given data.
 
     :param model: The model to evaluate.
     :param data_loader: DataLoader for the data.
+    :param criterion: Loss function.
     :param device: Device to perform evaluation on (CPU or GPU).
     :param prefix: Prefix for logging (e.g., "Test" or "Train").
     """
@@ -68,6 +73,8 @@ def evaluate(
     precision_metric = torchmetrics.Precision(task="binary").to(device)
     recall_metric = torchmetrics.Recall(task="binary").to(device)
     f1_metric = torchmetrics.F1Score(task="binary").to(device)
+    total_loss = 0
+    calculate_loss = prefix != "Train"
 
     with torch.no_grad():
         for batch in tqdm(data_loader, desc=f"Evaluating {prefix}"):
@@ -75,12 +82,20 @@ def evaluate(
             x, y = x.to(device), y.to(device).float()
 
             outputs = model(x)
+            if calculate_loss:
+                loss = criterion(outputs, y)
+                total_loss += loss.item()
             preds = (outputs > 0.5).float()
 
             accuracy_metric.update(preds, y.int())
             precision_metric.update(preds, y.int())
             recall_metric.update(preds, y.int())
             f1_metric.update(preds, y.int())
+
+    if calculate_loss:
+        avg_loss = total_loss / len(data_loader)
+        logger.info(f"{prefix} Loss: {avg_loss:.4f}")
+        wandb.log({f"{prefix} Loss": avg_loss})
 
     accuracy = accuracy_metric.compute().item()
     precision = precision_metric.compute().item()
@@ -176,15 +191,16 @@ def train_model(
     model = torch.compile(model)
     model = model.to(device)
 
-    criterion = nn.BCEWithLogitsLoss()
+    pos_weight = torch.tensor([6]).to(device)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     for epoch in range(wandb.config.epochs):
         logger.info(f"Epoch {epoch + 1}/{epochs}")
         wandb.log({"Epoch": epoch + 1})
         train(model, train_loader, criterion, optimizer, device)
-        evaluate(model, train_loader, device, prefix="Train")
-        evaluate(model, val_loader, device, prefix="Validation")
+        evaluate(model, train_loader, criterion, device, prefix="Train")
+        evaluate(model, val_loader, criterion, device, prefix="Validation")
 
     save_model_and_report(model, model_type, epochs, batch_size, learning_rate)
     wandb.finish()
