@@ -86,6 +86,7 @@ def create_dataset(
     test_size: float = 0.2,
     val_size: float = 0.1,
     verbosity: str = "INFO",
+    exclude_datasets: Union[str, None] = None,
 ) -> None:
     """
     Execute the full pipeline: clear data, preprocess all datasets, and process the data.
@@ -95,11 +96,14 @@ def create_dataset(
     :param test_size: Proportion of the dataset to include in the test split.
     :param val_size: Proportion of the dataset to include in the validation split.
     :param verbosity: Verbosity level for logging.
+    :param exclude_datasets: Comma-separated list of datasets to exclude.
     """
     processing.clear_data(None, "both")
 
+    exclude_list = exclude_datasets.split(",") if exclude_datasets else []
+
     for dataset_name in os.listdir(RAW_DATA_DIR):
-        if os.path.isdir(os.path.join(RAW_DATA_DIR, dataset_name)):
+        if os.path.isdir(os.path.join(RAW_DATA_DIR, dataset_name)) and dataset_name not in exclude_list:
             processing.preprocess_dataset(dataset_name, target_fs, verbosity)
 
     processing.process_dataset(chunk_size, test_size, val_size, verbosity)
