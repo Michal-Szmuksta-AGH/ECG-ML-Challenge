@@ -17,6 +17,9 @@ test_data*/
 # Mac OS-specific storage files
 .DS_Store
 
+# Figures
+figures/
+
 # vim
 *.swp
 *.swo

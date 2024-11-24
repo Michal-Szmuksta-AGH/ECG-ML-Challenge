@@ -7,7 +7,7 @@ import numpy as np
 import wfdb
 from loguru import logger
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import normalize
+from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm
 from wfdb import processing
 
@@ -212,7 +212,7 @@ def preprocess_dataset(dataset_name: str, target_fs: int, verbosity: str) -> Non
     )
 
 
-def save_chunks(chunks, info, save_dir, use_tqdm: bool) -> None:
+def save_chunks(chunks, info, save_dir, use_tqdm: bool, scalers: dict) -> None:
     """
     Save chunks of data to the specified directory.
 
@@ -220,6 +220,7 @@ def save_chunks(chunks, info, save_dir, use_tqdm: bool) -> None:
     :param info: List of information tuples (dataset_name, file_name, channel, chunk_idx).
     :param save_dir: Directory to save the chunks.
     :param use_tqdm: Whether to use tqdm progress bar.
+    :param scalers: Dictionary of scalers for each dataset and channel.
     """
     iterator = (
         tqdm(zip(chunks, info), desc=f"Saving data to {save_dir}", total=len(chunks), unit="chunk")
@@ -227,12 +228,17 @@ def save_chunks(chunks, info, save_dir, use_tqdm: bool) -> None:
         else zip(chunks, info)
     )
     for (chunk_x, chunk_y), (dataset_name, file_name, channel, chunk_idx) in iterator:
+        scaler_x = scalers[(dataset_name, channel)]
+        normalized_x = scaler_x.transform(chunk_x.reshape(-1, 1)).squeeze()
+        logger.debug(f"First 20 elements of chunk_x before saving: {chunk_x[:20]}")
+        logger.debug(f"First 20 elements of chunk_y before saving: {chunk_y[:20]}")
+        logger.debug(f"First 20 elements of normalized chunk_x: {normalized_x[:20]}")
         np.savez(
             os.path.join(
                 save_dir, f"{dataset_name}_{file_name}_chunk{chunk_idx}_channel{channel}.npz"
             ),
-            x=normalize(chunk_x.reshape(-1, 1)).squeeze(),
-            y=normalize(chunk_y.reshape(-1, 1)).squeeze(),
+            x=normalized_x,
+            y=chunk_y,
         )
 
 
@@ -367,6 +373,7 @@ def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosit
 
     all_chunks = []
     file_info = []
+    scalers = {}
 
     for dataset_name, file in file_iterator:
         logger.debug(f"Processing file {file} from dataset {dataset_name}...")
@@ -375,8 +382,15 @@ def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosit
         y = data["y"]
 
         for channel in range(x.shape[1]):
+            if (dataset_name, channel) not in scalers:
+                scalers[(dataset_name, channel)] = MinMaxScaler(feature_range=(-1, 1))
+            scaler_x = scalers[(dataset_name, channel)]
+
             chunks_x = split_data(x[:, channel], chunk_size)
             chunks_y = split_data(y, chunk_size)
+
+            for chunk in chunks_x:
+                scaler_x.partial_fit(chunk.reshape(-1, 1))
 
             all_chunks.extend(zip(chunks_x, chunks_y))
             file_info.extend(
@@ -395,13 +409,13 @@ def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosit
     )
 
     logger.info(f"Saving training data to {train_dir}...")
-    save_chunks(train_chunks, train_info, train_dir, use_tqdm)
+    save_chunks(train_chunks, train_info, train_dir, use_tqdm, scalers)
 
     logger.info(f"Saving validation data to {val_dir}...")
-    save_chunks(val_chunks, val_info, val_dir, use_tqdm)
+    save_chunks(val_chunks, val_info, val_dir, use_tqdm, scalers)
 
     logger.info(f"Saving test data to {test_dir}...")
-    save_chunks(test_chunks, test_info, test_dir, use_tqdm)
+    save_chunks(test_chunks, test_info, test_dir, use_tqdm, scalers)
 
     train_pos, train_neg = count_classes(train_chunks)
     val_pos, val_neg = count_classes(val_chunks)
