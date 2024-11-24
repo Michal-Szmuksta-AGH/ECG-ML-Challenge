@@ -3,6 +3,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from loguru import logger
+from src.config import TRAIN_DATA_DIR
+import os
+import random
+import numpy as np
 
 
 def get_model(model_type: str, *args, **kwargs):
@@ -17,10 +21,44 @@ def get_model(model_type: str, *args, **kwargs):
         if inspect.isclass(cls) and issubclass(cls, nn.Module)
     }
     if model_type in model_classes:
-        return model_classes[model_type](*args, **kwargs)
+        model_class = model_classes[model_type]
+        if "input_length" in inspect.signature(model_class).parameters:
+            sample_file = random.choice(os.listdir(TRAIN_DATA_DIR))
+            sample_path = os.path.join(TRAIN_DATA_DIR, sample_file)
+            sample_data = np.load(sample_path)
+            input_length = sample_data["x"].shape[-1]
+            kwargs["input_length"] = input_length
+        return model_class(*args, **kwargs)
     else:
         logger.error(f"Unknown model type: {model_type}")
         raise ValueError(f"Unknown model type: {model_type}")
+
+
+class Hook:
+    def __init__(self, module, backward=False):
+        self.module = module
+        self.input = None
+        self.output = None
+        if backward == False:
+            self.hook = module.register_forward_hook(self.hook_fn)
+        else:
+            self.hook = module.register_backward_hook(self.hook_fn)
+
+    def hook_fn(self, module, input, output):
+        self.input = input
+        self.output = output
+
+    def close(self):
+        self.hook.remove()
+
+
+def add_hooks(model):
+    hooks = []
+    for layer in model.children():
+        hooks.append(Hook(layer))
+        if hasattr(layer, "children"):
+            hooks.extend(add_hooks(layer))
+    return hooks
 
 
 class LSTMModel(nn.Module):
@@ -256,3 +294,66 @@ class GRUModel(nn.Module):
         out = self.fc(out)
         out = self.sigmoid(out)
         return out
+
+
+class Deep1DCNN(nn.Module):
+    def __init__(self, input_length):
+        super(Deep1DCNN, self).__init__()
+
+        # Blok 1: Warstwy konwolucyjne + MaxPooling po każdej warstwie
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=64, kernel_size=7, stride=1, padding=3)
+        self.pool1 = nn.MaxPool1d(kernel_size=2, stride=2)
+        self.conv2 = nn.Conv1d(
+            in_channels=64, out_channels=128, kernel_size=5, stride=1, padding=2
+        )
+        self.pool2 = nn.MaxPool1d(kernel_size=2, stride=2)
+        self.conv3 = nn.Conv1d(
+            in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1
+        )
+        self.pool3 = nn.MaxPool1d(kernel_size=2, stride=2)
+
+        # Blok 2: Ostatnie 3 warstwy konwolucyjne bez pooling
+        self.conv4 = nn.Conv1d(
+            in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1
+        )
+        self.conv5 = nn.Conv1d(
+            in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1
+        )
+        self.conv6 = nn.Conv1d(
+            in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1
+        )
+
+        # Blok 3: Warstwy liniowe
+        reduced_length = input_length // (2**3)
+        self.fc1 = nn.Linear(512 * reduced_length, 1024)
+        self.fc2 = nn.Linear(1024, 512)
+        self.fc3 = nn.Linear(512, input_length)
+
+    def forward(self, x):
+        x = x.unsqueeze(1)
+
+        # Blok 1: Warstwy konwolucyjne + MaxPooling po każdej warstwie
+        x = F.relu(self.conv1(x))
+        x = self.pool1(x)
+        x = F.relu(self.conv2(x))
+        x = self.pool2(x)
+        x = F.relu(self.conv3(x))
+        x = self.pool3(x)
+
+        # Blok 2: Ostatnie 3 warstwy konwolucyjne bez pooling
+        x = F.relu(self.conv4(x))
+        x = F.relu(self.conv5(x))
+        x = F.relu(self.conv6(x))
+
+        # Flatten (przygotowanie danych do warstw w pełni połączonych)
+        x = x.view(x.size(0), -1)  # Rzutowanie na [B, feature_size]
+
+        # Blok 3: Warstwy liniowe
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+
+        # Dodanie wymiaru na końcu, by uzyskać [B, input_length, 1]
+        x = x.squeeze(-1)
+
+        return x

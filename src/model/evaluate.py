@@ -9,6 +9,8 @@ from src.dataset.dataloaders import ECGDataset
 from src.config import FIGURES_DIR
 import numpy as np
 from tqdm import tqdm
+from src.config import TRAIN_DATA_DIR, MODELS_DIR
+from src.model.models import add_hooks
 
 
 def select_random_sample_with_both_classes(test_data_loader: DataLoader):
@@ -60,23 +62,27 @@ def remove_prefix_from_state_dict(state_dict, prefix):
     return {k[len(prefix) :] if k.startswith(prefix) else k: v for k, v in state_dict.items()}
 
 
-def plot_comparative_graph(sample_data, sample_label, predicted_label, sample_filename):
+def plot_comparative_graph(
+    sample_data, sample_label, predicted_label, sample_filename, probabilities
+):
     """
-    Plot comparative graphs of the sample, showing the signal, true labels, and predicted labels.
+    Plot comparative graphs of the sample, showing the signal, true labels, predicted labels, and probabilities.
 
     :param sample_data: The ECG signal data.
     :param sample_label: The true labels.
     :param predicted_label: The predicted labels by the model.
     :param sample_filename: The filename of the sample.
+    :param probabilities: The predicted probabilities by the model.
     """
     sample_data = sample_data.cpu().numpy().flatten()
     sample_label = sample_label.cpu().numpy().flatten()
     predicted_label = predicted_label.cpu().numpy().flatten()
+    probabilities = probabilities.cpu().numpy().flatten()
 
     plt.figure(figsize=(15, 10))
 
     # Plot ECG Signal
-    plt.subplot(2, 1, 1)
+    plt.subplot(3, 1, 1)
     plt.plot(sample_data, label="ECG Signal")
     plt.title("ECG Signal")
     plt.xlabel("Sample Index")
@@ -84,7 +90,7 @@ def plot_comparative_graph(sample_data, sample_label, predicted_label, sample_fi
     plt.legend()
 
     # Plot True and Predicted Labels with TP, TN, FP, FN
-    plt.subplot(2, 1, 2)
+    plt.subplot(3, 1, 2)
     tp_indices = (predicted_label == 1) & (sample_label == 1)
     tn_indices = (predicted_label == 0) & (sample_label == 0)
     fp_indices = (predicted_label == 1) & (sample_label == 0)
@@ -99,6 +105,16 @@ def plot_comparative_graph(sample_data, sample_label, predicted_label, sample_fi
     plt.xlabel("Sample Index")
     plt.ylabel("Event")
     plt.legend()
+
+    # Plot Probabilities and Threshold
+    plt.subplot(3, 1, 3)
+    plt.plot(probabilities, label="Predicted Probabilities", color="blue")
+    plt.axhline(y=0.5, color="r", linestyle="--", label="Threshold (0.5)")
+    plt.title("Predicted Probabilities and Threshold")
+    plt.xlabel("Sample Index")
+    plt.ylabel("Probability")
+    plt.legend()
+
     plt.tight_layout()
 
     os.makedirs(FIGURES_DIR, exist_ok=True)
@@ -170,4 +186,57 @@ def evaluate_model(
             f"Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1_score:.4f}"
         )
 
-        plot_comparative_graph(sample_data, sample_label, predicted_label, sample_filename)
+        plot_comparative_graph(
+            sample_data, sample_label, predicted_label, sample_filename, probabilities
+        )
+
+
+def evaluate_tensor_shapes(
+    model_type: str, batch_size: int = 8, models_dataset_dir: str = MODELS_DIR
+) -> None:
+    """
+    Evaluate tensor shapes during model processing for a random batch from the training dataset.
+
+    :param model_type: Type of the model.
+    :param batch_size: Size of the batch to evaluate.
+    :param models_dataset_dir: Directory of the models dataset.
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = get_model(model_type).to(device)
+    model.eval()
+
+    hooks = add_hooks(model)
+
+    train_dataset = ECGDataset(TRAIN_DATA_DIR)
+    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+    sample_data, sample_label = next(iter(train_data_loader))
+    sample_data = sample_data.to(device)
+
+    try:
+        with torch.no_grad():
+            model(sample_data)
+    except Exception as e:
+        logger.error(f"Dimension error during model evaluation: {str(e)}")
+        return  # Stop the program after the first encountered dimension error
+
+    for hook in hooks:
+        if hook.input is not None and hook.output is not None:
+            if isinstance(hook.input, torch.Tensor):
+                input_shape = hook.input.shape
+            else:
+                input_shape = hook.input[0].shape
+            if isinstance(hook.output, torch.Tensor):
+                output_shape = hook.output.shape
+            else:
+                output_shape = hook.output[0].shape
+            print(f"Module: {hook.module}")
+            print(f"Input shape: {input_shape}")
+            print(f"Output shape: {output_shape}\n")
+        else:
+            print(f"Error in module: {hook.module}")
+            return  # Stop the program after the first encountered dimension error
+        print('-' * 51)  # 51 dashes to fill the line
+
+    for hook in hooks:
+        hook.close()

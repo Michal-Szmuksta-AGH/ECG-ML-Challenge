@@ -7,6 +7,7 @@ from loguru import logger
 import src.dataset.processing as processing
 import src.model.training as training
 import src.model.evaluate as evaluate
+from src.model.models import get_model
 from src.config import (
     RAW_DATA_DIR,
     TRAIN_DATA_DIR,
@@ -15,9 +16,7 @@ from src.config import (
     MODELS_DIR,
     MINIMAL_RUNTIME_DIR,
     SRC_DIR,
-    FIGURES_DIR,
 )
-from src.model.models import get_model
 
 app = typer.Typer()
 
@@ -219,6 +218,22 @@ def evaluate_model(
     evaluate.evaluate_model(
         model_type, state_dict_name, TEST_DATA_DIR, models_dataset_dir, num_samples
     )
+
+
+@app.command()
+def evaluate_tensor_shapes(
+    model_type: str,
+    batch_size: int = 8,
+    models_dataset_dir: str = MODELS_DIR,
+) -> None:
+    """
+    Evaluate tensor shapes during model processing for a random batch from the training dataset.
+
+    :param model_type: Type of the model.
+    :param batch_size: Size of the batch to evaluate.
+    :param models_dataset_dir: Directory of the models dataset.
+    """
+    evaluate.evaluate_tensor_shapes(model_type, batch_size, models_dataset_dir)
 
 
 if __name__ == "__main__":
