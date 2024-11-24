@@ -300,31 +300,56 @@ class Deep1DCNN(nn.Module):
     def __init__(self, input_length):
         super(Deep1DCNN, self).__init__()
 
-        # Blok 1: Warstwy konwolucyjne + MaxPooling po każdej warstwie
-        self.conv1 = nn.Conv1d(in_channels=1, out_channels=64, kernel_size=7, stride=1, padding=3)
+        # Nowa warstwa konwolucyjna z jeszcze większym kernel size
+        self.conv0 = nn.Conv1d(
+            in_channels=1, out_channels=32, kernel_size=21, stride=1, padding=10
+        )
+        self.bn0 = nn.BatchNorm1d(32)
+        self.pool0 = nn.MaxPool1d(kernel_size=2, stride=2)
+
+        # Nowa warstwa konwolucyjna z większym kernel size
+        self.conv1 = nn.Conv1d(
+            in_channels=32, out_channels=64, kernel_size=15, stride=1, padding=7
+        )
+        self.bn1 = nn.BatchNorm1d(64)
         self.pool1 = nn.MaxPool1d(kernel_size=2, stride=2)
+
+        # Blok 1: Warstwy konwolucyjne + MaxPooling po każdej warstwie
         self.conv2 = nn.Conv1d(
-            in_channels=64, out_channels=128, kernel_size=5, stride=1, padding=2
+            in_channels=64, out_channels=128, kernel_size=7, stride=1, padding=3
         )
+        self.bn2 = nn.BatchNorm1d(128)
         self.pool2 = nn.MaxPool1d(kernel_size=2, stride=2)
+
         self.conv3 = nn.Conv1d(
-            in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1
+            in_channels=128, out_channels=256, kernel_size=5, stride=1, padding=2
         )
+        self.bn3 = nn.BatchNorm1d(256)
         self.pool3 = nn.MaxPool1d(kernel_size=2, stride=2)
 
-        # Blok 2: Ostatnie 3 warstwy konwolucyjne bez pooling
         self.conv4 = nn.Conv1d(
             in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1
         )
+        self.bn4 = nn.BatchNorm1d(512)
+
+        # Blok 2: Ostatnie 3 warstwy konwolucyjne bez pooling
         self.conv5 = nn.Conv1d(
             in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1
         )
+        self.bn5 = nn.BatchNorm1d(512)
+
         self.conv6 = nn.Conv1d(
             in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1
         )
+        self.bn6 = nn.BatchNorm1d(512)
+
+        self.conv7 = nn.Conv1d(
+            in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1
+        )
+        self.bn7 = nn.BatchNorm1d(512)
 
         # Blok 3: Warstwy liniowe
-        reduced_length = input_length // (2**3)
+        reduced_length = input_length // (2**4)
         self.fc1 = nn.Linear(512 * reduced_length, 1024)
         self.fc2 = nn.Linear(1024, 512)
         self.fc3 = nn.Linear(512, input_length)
@@ -332,18 +357,27 @@ class Deep1DCNN(nn.Module):
     def forward(self, x):
         x = x.unsqueeze(1)
 
-        # Blok 1: Warstwy konwolucyjne + MaxPooling po każdej warstwie
-        x = F.relu(self.conv1(x))
+        # Nowa warstwa konwolucyjna z jeszcze większym kernel size
+        x = F.relu(self.bn0(self.conv0(x)))
+        x = self.pool0(x)
+
+        # Nowa warstwa konwolucyjna z większym kernel size
+        x = F.relu(self.bn1(self.conv1(x)))
         x = self.pool1(x)
-        x = F.relu(self.conv2(x))
+
+        # Blok 1: Warstwy konwolucyjne + MaxPooling po każdej warstwie
+        x = F.relu(self.bn2(self.conv2(x)))
         x = self.pool2(x)
-        x = F.relu(self.conv3(x))
+
+        x = F.relu(self.bn3(self.conv3(x)))
         x = self.pool3(x)
 
+        x = F.relu(self.bn4(self.conv4(x)))
+
         # Blok 2: Ostatnie 3 warstwy konwolucyjne bez pooling
-        x = F.relu(self.conv4(x))
-        x = F.relu(self.conv5(x))
-        x = F.relu(self.conv6(x))
+        x = F.relu(self.bn5(self.conv5(x)))
+        x = F.relu(self.bn6(self.conv6(x)))
+        x = F.relu(self.bn7(self.conv7(x)))
 
         # Flatten (przygotowanie danych do warstw w pełni połączonych)
         x = x.view(x.size(0), -1)  # Rzutowanie na [B, feature_size]

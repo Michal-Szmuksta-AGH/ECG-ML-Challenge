@@ -191,7 +191,7 @@ def train_model(
     model = torch.compile(model)
     model = model.to(device)
 
-    pos_weight = torch.tensor([6]).to(device)
+    pos_weight = torch.tensor([4.74]).to(device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
