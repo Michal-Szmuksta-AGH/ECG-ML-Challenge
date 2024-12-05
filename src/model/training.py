@@ -1,19 +1,19 @@
 import os
 import sys
-from datetime import datetime
-
+import wandb
 import torch
+import torchmetrics
 import torch.nn as nn
 import torch.optim as optim
-import torchmetrics
-import wandb
-from loguru import logger
-from torch.utils.data import DataLoader
-from tqdm import tqdm
 
-from config import MODELS_DIR, TRAIN_DATA_DIR, VAL_DATA_DIR
-from dataset.dataloaders import ECGDataset
-from model.models import LSTMModel
+from tqdm import tqdm
+from loguru import logger
+from datetime import datetime
+from torch.utils.data import DataLoader
+
+from src.config import MODELS_DIR, TRAIN_DATA_DIR, VAL_DATA_DIR
+from src.dataset.dataloaders import ECGDataset
+from src.model.models import get_model
 
 
 def train(
@@ -53,13 +53,18 @@ def train(
 
 
 def evaluate(
-    model: nn.Module, data_loader: DataLoader, device: torch.device, prefix: str = "Test"
+    model: nn.Module,
+    data_loader: DataLoader,
+    criterion: nn.Module,
+    device: torch.device,
+    prefix: str = "Test",
 ) -> None:
     """
     Evaluate the model on the given data.
 
     :param model: The model to evaluate.
     :param data_loader: DataLoader for the data.
+    :param criterion: Loss function.
     :param device: Device to perform evaluation on (CPU or GPU).
     :param prefix: Prefix for logging (e.g., "Test" or "Train").
     """
@@ -68,6 +73,8 @@ def evaluate(
     precision_metric = torchmetrics.Precision(task="binary").to(device)
     recall_metric = torchmetrics.Recall(task="binary").to(device)
     f1_metric = torchmetrics.F1Score(task="binary").to(device)
+    total_loss = 0
+    calculate_loss = prefix != "Train"
 
     with torch.no_grad():
         for batch in tqdm(data_loader, desc=f"Evaluating {prefix}"):
@@ -75,12 +82,20 @@ def evaluate(
             x, y = x.to(device), y.to(device).float()
 
             outputs = model(x)
+            if calculate_loss:
+                loss = criterion(outputs, y)
+                total_loss += loss.item()
             preds = (outputs > 0.5).float()
 
             accuracy_metric.update(preds, y.int())
             precision_metric.update(preds, y.int())
             recall_metric.update(preds, y.int())
             f1_metric.update(preds, y.int())
+
+    if calculate_loss:
+        avg_loss = total_loss / len(data_loader)
+        logger.info(f"{prefix} Loss: {avg_loss:.4f}")
+        wandb.log({f"{prefix} Loss": avg_loss})
 
     accuracy = accuracy_metric.compute().item()
     precision = precision_metric.compute().item()
@@ -121,19 +136,21 @@ def save_model_and_report(
     torch.save(model.state_dict(), model_save_path)
     logger.info(f"Model saved to {model_save_path}")
 
-    # FIXME
-    wandb.save(model_save_path)
-    logger.info(f"wandb report saved to {model_save_path}")
+    artifact = wandb.Artifact(name=model_filename, type="model")
+    artifact.add_file(model_save_path)
+    wandb.log_artifact(artifact)
+    logger.info(f"Model artifact logged to wandb")
 
 
 def train_model(
     epochs: int = 10,
     batch_size: int = 16,
     learning_rate: float = 0.001,
-    model_type: str = "LSTM",
+    model_type: str = "LSTMModel",
     train_data_dir: str = TRAIN_DATA_DIR,
     val_data_dir: str = VAL_DATA_DIR,
     verbosity: str = "INFO",
+    resume_model: str = None,
 ) -> None:
     """
     Train the model with the specified options.
@@ -146,6 +163,7 @@ def train_model(
     :param test_data_dir: Directory for test data.
     :param val_data_dir: Directory for validation data.
     :param verbosity: Logging verbosity level.
+    :param resume_model: Path to a saved model to resume training from. If None, train from scratch.
     """
     wandb.init(
         project="ECG-ML-Challenge",
@@ -163,23 +181,26 @@ def train_model(
 
     train_dataset = ECGDataset(directory=train_data_dir)
     val_dataset = ECGDataset(directory=val_data_dir)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
 
-    if model_type == "LSTM":
-        model = LSTMModel().to(device)
-    else:
-        raise ValueError(f"Unsupported model type: {model_type}")
+    model = get_model(model_type)
+    if resume_model:
+        model.load_state_dict(torch.load(resume_model))
+        logger.info(f"Resumed training from model: {resume_model}")
+    model = torch.compile(model)
+    model = model.to(device)
 
-    criterion = nn.BCELoss()
+    pos_weight = torch.tensor([4.74]).to(device)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     for epoch in range(wandb.config.epochs):
         logger.info(f"Epoch {epoch + 1}/{epochs}")
         wandb.log({"Epoch": epoch + 1})
         train(model, train_loader, criterion, optimizer, device)
-        evaluate(model, train_loader, device, prefix="Train")
-        evaluate(model, val_loader, device, prefix="Validation")
+        evaluate(model, train_loader, criterion, device, prefix="Train")
+        evaluate(model, val_loader, criterion, device, prefix="Validation")
 
     save_model_and_report(model, model_type, epochs, batch_size, learning_rate)
     wandb.finish()

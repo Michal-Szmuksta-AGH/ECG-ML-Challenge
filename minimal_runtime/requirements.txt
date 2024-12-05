@@ -1,0 +1,4 @@
+numpy==1.24.1
+setuptools<=72.1.0
+wfdb
+scikit-learn

@@ -1,6 +1,10 @@
 # Wandb
 reports/wandb/
 
+# Generated files for packaged project
+*.tar.gz
+*.zip
+
 # Data
 # /data/
 *.pt
@@ -10,6 +14,9 @@ test_data*/
 *tmp/
 # Mac OS-specific storage files
 .DS_Store
+
+# Figures
+figures/
 
 # vim
 *.swp

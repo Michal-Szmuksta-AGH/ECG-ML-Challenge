@@ -5,7 +5,7 @@ import wfdb
 import matplotlib.pyplot as plt
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from src import plot_ecg
+from src.visualization import plot_ecg
 
 TEST_DIR = "tmp"
 TEST_DATASET_DIR = os.path.abspath(

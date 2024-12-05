@@ -7,11 +7,11 @@ import numpy as np
 import wfdb
 from loguru import logger
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import normalize
+from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm
 from wfdb import processing
 
-from config import (
+from src.config import (
     INTERIM_DATA_DIR,
     PROCESSED_DATA_DIR,
     RAW_DATA_DIR,
@@ -96,10 +96,10 @@ def aux2vec(annotation: wfdb.Annotation, fs: int, samples: Union[None, int] = No
     ann_vec = np.zeros(samples, dtype=np.uint8)
     i = 0
     while i < len(annotation.sample):
-        if annotation.aux_note[i] == "(AFIB":
+        if "(AFIB" in annotation.aux_note[i]:
             j = i + 1
             while j < len(annotation.sample):
-                if annotation.aux_note[j] != "(AFIB":
+                if "(AFIB" not in annotation.aux_note[j]:
                     ann_vec[annotation.sample[i] : annotation.sample[j]] = 1
                     i = j
                     break
@@ -158,7 +158,6 @@ def preprocess_record(
             annotation = wfdb.rdann(os.path.join(dataset_dir, record_name), "qrs")
         except:
             return
-    
 
     logger.debug(f"Resampling {record_name} to {target_fs} Hz...")
     resampled_x, resampled_ann = processing.resample_multichan(
@@ -213,7 +212,7 @@ def preprocess_dataset(dataset_name: str, target_fs: int, verbosity: str) -> Non
     )
 
 
-def save_chunks(chunks, info, save_dir, use_tqdm: bool) -> None:
+def save_chunks(chunks, info, save_dir, use_tqdm: bool, scalers: dict) -> None:
     """
     Save chunks of data to the specified directory.
 
@@ -221,6 +220,7 @@ def save_chunks(chunks, info, save_dir, use_tqdm: bool) -> None:
     :param info: List of information tuples (dataset_name, file_name, channel, chunk_idx).
     :param save_dir: Directory to save the chunks.
     :param use_tqdm: Whether to use tqdm progress bar.
+    :param scalers: Dictionary of scalers for each dataset and channel.
     """
     iterator = (
         tqdm(zip(chunks, info), desc=f"Saving data to {save_dir}", total=len(chunks), unit="chunk")
@@ -228,15 +228,23 @@ def save_chunks(chunks, info, save_dir, use_tqdm: bool) -> None:
         else zip(chunks, info)
     )
     for (chunk_x, chunk_y), (dataset_name, file_name, channel, chunk_idx) in iterator:
+        scaler_x = scalers[(dataset_name, channel)]
+        normalized_x = scaler_x.transform(chunk_x.reshape(-1, 1)).squeeze()
+        logger.debug(f"First 20 elements of chunk_x before saving: {chunk_x[:20]}")
+        logger.debug(f"First 20 elements of chunk_y before saving: {chunk_y[:20]}")
+        logger.debug(f"First 20 elements of normalized chunk_x: {normalized_x[:20]}")
         np.savez(
             os.path.join(
                 save_dir, f"{dataset_name}_{file_name}_chunk{chunk_idx}_channel{channel}.npz"
             ),
-            x=normalize(chunk_x.reshape(-1, 1)).squeeze(),
-            y=normalize(chunk_y.reshape(-1, 1)).squeeze(),
+            x=normalized_x,
+            y=chunk_y,
         )
 
-def split_chunks(all_chunks: list, file_info: list, chunk_size: int, test_size: float, val_size: float) -> tuple:
+
+def split_chunks(
+    all_chunks: list, file_info: list, chunk_size: int, test_size: float, val_size: float
+) -> tuple:
     """
     Split proportionally chunks to sets.
 
@@ -247,9 +255,11 @@ def split_chunks(all_chunks: list, file_info: list, chunk_size: int, test_size: 
     :param val_size: Proportion of the dataset to include in the validation split.
     """
     combined = list(zip(all_chunks, file_info))
-    with_afib = [chunk for chunk in combined if np.sum(chunk[0][1]) > chunk_size * 0.1]
-    without_afib = [chunk for chunk in combined if np.sum(chunk[0][1]) <= chunk_size * 0.1]
-    logger.info(f"{len(with_afib)/len(all_chunks) * 100:.2f} % chunks contains atrial fibrillation")
+    with_afib = [chunk for chunk in combined if np.sum(chunk[0][1]) > chunk_size * 0.0]
+    without_afib = [chunk for chunk in combined if np.sum(chunk[0][1]) <= chunk_size * 0.0]
+    logger.info(
+        f"{len(with_afib)/len(all_chunks) * 100:.2f} % chunks contains atrial fibrillation"
+    )
 
     def split_group(group):
         chunks, file_info = zip(*group)
@@ -260,10 +270,24 @@ def split_chunks(all_chunks: list, file_info: list, chunk_size: int, test_size: 
             temp_chunks, temp_info, test_size=test_size / (test_size + val_size), random_state=42
         )
         return train_chunks, train_info, val_chunks, test_chunks, val_info, test_info
-    
-    train_chunks_afib, train_info_afib, val_chunks_afib, test_chunks_afib, val_info_afib, test_info_afib = split_group(with_afib)
-    train_chunks_NOafib, train_info_NOafib, val_chunks_NOafib, test_chunks_NOafib, val_info_NOafib, test_info_NOafib = split_group(without_afib)
-    
+
+    (
+        train_chunks_afib,
+        train_info_afib,
+        val_chunks_afib,
+        test_chunks_afib,
+        val_info_afib,
+        test_info_afib,
+    ) = split_group(with_afib)
+    (
+        train_chunks_NOafib,
+        train_info_NOafib,
+        val_chunks_NOafib,
+        test_chunks_NOafib,
+        val_info_NOafib,
+        test_info_NOafib,
+    ) = split_group(without_afib)
+
     train_chunks = train_chunks_afib + train_chunks_NOafib
     val_chunks = val_chunks_afib + val_chunks_NOafib
     test_chunks = test_chunks_afib + test_chunks_NOafib
@@ -283,6 +307,31 @@ def split_chunks(all_chunks: list, file_info: list, chunk_size: int, test_size: 
     test_chunks, test_info = shuffle_together(test_chunks, test_info)
 
     return train_chunks, train_info, val_chunks, val_info, test_chunks, test_info
+
+
+def count_classes(chunks):
+    """
+    Count the number of positive and negative classes in the chunks.
+
+    :param chunks: List of data chunks.
+    :return: Tuple containing the number of positive and negative classes.
+    """
+    positive_count = sum(np.sum(chunk[1]) > 0 for chunk in chunks)
+    negative_count = len(chunks) - positive_count
+    return positive_count, negative_count
+
+
+def display_class_ratios(pos_count, neg_count, set_name):
+    """
+    Display the ratio of negative to positive classes.
+
+    :param pos_count: Number of positive classes.
+    :param neg_count: Number of negative classes.
+    :param set_name: Name of the dataset split (train, val, test).
+    """
+    ratio = neg_count / pos_count if pos_count > 0 else float("inf")
+    logger.info(f"{set_name} set: {neg_count} negative, {pos_count} positive, ratio: {ratio:.2f}")
+
 
 def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosity: str) -> None:
     """
@@ -324,6 +373,7 @@ def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosit
 
     all_chunks = []
     file_info = []
+    scalers = {}
 
     for dataset_name, file in file_iterator:
         logger.debug(f"Processing file {file} from dataset {dataset_name}...")
@@ -332,8 +382,15 @@ def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosit
         y = data["y"]
 
         for channel in range(x.shape[1]):
+            if (dataset_name, channel) not in scalers:
+                scalers[(dataset_name, channel)] = MinMaxScaler(feature_range=(-1, 1))
+            scaler_x = scalers[(dataset_name, channel)]
+
             chunks_x = split_data(x[:, channel], chunk_size)
             chunks_y = split_data(y, chunk_size)
+
+            for chunk in chunks_x:
+                scaler_x.partial_fit(chunk.reshape(-1, 1))
 
             all_chunks.extend(zip(chunks_x, chunks_y))
             file_info.extend(
@@ -347,16 +404,26 @@ def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosit
         f"Splitting data into training, validation, and test sets with test size {test_size} and validation size {val_size}..."
     )
 
-    train_chunks, train_info, val_chunks, val_info, test_chunks, test_info = split_chunks(all_chunks, file_info, chunk_size, test_size, val_size)
+    train_chunks, train_info, val_chunks, val_info, test_chunks, test_info = split_chunks(
+        all_chunks, file_info, chunk_size, test_size, val_size
+    )
 
     logger.info(f"Saving training data to {train_dir}...")
-    save_chunks(train_chunks, train_info, train_dir, use_tqdm)
+    save_chunks(train_chunks, train_info, train_dir, use_tqdm, scalers)
 
     logger.info(f"Saving validation data to {val_dir}...")
-    save_chunks(val_chunks, val_info, val_dir, use_tqdm)
+    save_chunks(val_chunks, val_info, val_dir, use_tqdm, scalers)
 
     logger.info(f"Saving test data to {test_dir}...")
-    save_chunks(test_chunks, test_info, test_dir, use_tqdm)
+    save_chunks(test_chunks, test_info, test_dir, use_tqdm, scalers)
+
+    train_pos, train_neg = count_classes(train_chunks)
+    val_pos, val_neg = count_classes(val_chunks)
+    test_pos, test_neg = count_classes(test_chunks)
+
+    display_class_ratios(train_pos, train_neg, "Training")
+    display_class_ratios(val_pos, val_neg, "Validation")
+    display_class_ratios(test_pos, test_neg, "Test")
 
     logger.info(f"All processed ECG data saved to {processed_data_dir}")
 
