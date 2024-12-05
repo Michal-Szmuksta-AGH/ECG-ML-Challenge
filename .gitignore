@@ -2,8 +2,6 @@
 reports/wandb/
 
 # Generated files for packaged project
-minimal_runtime/models.py
-minimal_runtime/config.py
 *.tar.gz
 *.zip
 
