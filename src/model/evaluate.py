@@ -13,21 +13,6 @@ from src.config import TRAIN_DATA_DIR, MODELS_DIR
 from src.model.models import add_hooks
 
 
-def select_random_sample_with_both_classes(test_data_loader: DataLoader):
-    """
-    Select a truly random sample from the test dataset that contains both classes (0 and 1).
-
-    :param test_data_loader: DataLoader for the test dataset.
-    :return: Selected sample data, label, and filename.
-    """
-    samples = list(test_data_loader)
-    random.shuffle(samples)
-    for idx, (data, label) in enumerate(samples):
-        if 0 in label and 1 in label:
-            return data, label, test_data_loader.dataset.files[idx]
-    raise ValueError("No sample containing both classes found in the test dataset.")
-
-
 def select_random_samples_with_both_classes(test_data_loader: DataLoader, num_samples: int):
     """
     Select a specified number of random samples from the test dataset that contain both classes (0 and 1).
@@ -236,7 +221,7 @@ def evaluate_tensor_shapes(
         else:
             print(f"Error in module: {hook.module}")
             return  # Stop the program after the first encountered dimension error
-        print('-' * 51)  # 51 dashes to fill the line
+        print("-" * 51)  # 51 dashes to fill the line
 
     for hook in hooks:
         hook.close()
