@@ -56,30 +56,30 @@ def clear_dataset(dataset_name: Union[str, None] = None, data_type: str = "both"
 
 
 @app.command()
-def preprocess_dataset(dataset_name: str, target_fs: int, verbosity: str = "INFO") -> None:
+def preprocess_dataset(dataset_name: str, target_fs: int, chunk_size: int, verbosity: str = "INFO") -> None:
     """
     Preprocess the specified WFDB dataset.
 
     :param dataset_name: Name of the dataset.
     :param target_fs: Target sampling frequency.
+    :param chunk_size: Number of samples per chunk.
     :param verbosity: Verbosity level for logging.
     """
-    processing.preprocess_dataset(dataset_name, target_fs, verbosity)
+    processing.preprocess_dataset(dataset_name, target_fs, chunk_size, verbosity)
 
 
 @app.command()
 def process_dataset(
-    chunk_size: int, test_size: float = 0.2, val_size: float = 0.1, verbosity: str = "INFO"
+    test_size: float = 0.2, val_size: float = 0.1, verbosity: str = "INFO"
 ) -> None:
     """
     Process the preprocessed data.
 
-    :param chunk_size: Number of samples per chunk.
     :param test_size: Proportion of the dataset to include in the test split.
     :param val_size: Proportion of the dataset to include in the validation split.
     :param verbosity: Verbosity level for logging.
     """
-    processing.process_dataset(chunk_size, test_size, val_size, verbosity)
+    processing.process_dataset(test_size, val_size, verbosity)
 
 
 @app.command()
@@ -110,9 +110,9 @@ def create_dataset(
             os.path.isdir(os.path.join(RAW_DATA_DIR, dataset_name))
             and dataset_name not in exclude_list
         ):
-            processing.preprocess_dataset(dataset_name, target_fs, verbosity)
+            processing.preprocess_dataset(dataset_name, target_fs, chunk_size, verbosity)
 
-    processing.process_dataset(chunk_size, test_size, val_size, verbosity)
+    processing.process_dataset(test_size, val_size, verbosity)
 
 
 @app.command()

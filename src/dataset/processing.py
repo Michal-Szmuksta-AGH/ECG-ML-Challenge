@@ -6,10 +6,11 @@ from typing import Union
 import numpy as np
 import wfdb
 from loguru import logger
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm
 from wfdb import processing
+from scipy.signal import firwin, lfilter
+import pandas as pd
 
 from src.config import (
     INTERIM_DATA_DIR,
@@ -137,8 +138,27 @@ def split_data(data: np.ndarray, chunk_size: int) -> np.ndarray:
     return np.array(chunks)
 
 
+def fir_bandpass_filter(data, lowcut, highcut, fs, numtaps=101):
+    """
+    Apply a bandpass FIR filter to the data.
+
+    :param data: Input data.
+    :param lowcut: Low cutoff frequency.
+    :param highcut: High cutoff frequency.
+    :param fs: Sampling frequency.
+    :param numtaps: Number of filter taps.
+    :return: Filtered data.
+    """
+    nyquist = 0.5 * fs
+    low = lowcut / nyquist
+    high = highcut / nyquist
+    taps = firwin(numtaps, [low, high], pass_zero=False)
+    y = lfilter(taps, 1.0, data, axis=0)
+    return y
+
+
 def preprocess_record(
-    record_name: str, dataset_dir: str, target_fs: int, interim_data_dir: str
+    record_name: str, dataset_dir: str, target_fs: int, interim_data_dir: str, chunk_size: int
 ) -> None:
     """
     Process a single ECG record.
@@ -147,8 +167,10 @@ def preprocess_record(
     :param dataset_dir: Directory of the dataset.
     :param target_fs: Target sampling frequency.
     :param interim_data_dir: Directory to save interim data.
+    :param chunk_size: Number of samples per chunk.
     """
     logger.debug(f"Loading {record_name} from {dataset_dir}...")
+    dataset_name = os.path.basename(dataset_dir)
     try:
         record = wfdb.rdrecord(os.path.join(dataset_dir, record_name))
         annotation = wfdb.rdann(os.path.join(dataset_dir, record_name), "atr")
@@ -163,28 +185,48 @@ def preprocess_record(
     resampled_x, resampled_ann = processing.resample_multichan(
         record.p_signal, annotation, record.fs, target_fs
     )
-    if dataset_dir == "af-termination-challenge":
+    if dataset_dir.endswith("af-termination-challenge"):
         vector_ann = np.ones(resampled_x.shape[0], dtype=np.uint8)
     else:
         vector_ann = aux2vec(resampled_ann, target_fs, resampled_x.shape[0])
 
-    logger.debug(f"Saving {record_name} to {interim_data_dir}...")
+    logger.debug(f"Filtering {record_name}...")
+    filtered_x = fir_bandpass_filter(
+        resampled_x, lowcut=0.5, highcut=30, fs=target_fs, numtaps=201
+    )
+
+    logger.debug(f"Splitting {record_name} into chunks of size {chunk_size}...")
+    chunks_x = split_data(filtered_x, chunk_size)
+    chunks_y = split_data(vector_ann, chunk_size)
+
+    logger.debug(f"Scaling chunks of {record_name}...")
+    for channel in range(filtered_x.shape[1]):
+        scaler_x = MinMaxScaler(feature_range=(0, 1))
+        for chunk in chunks_x:
+            scaler_x.partial_fit(chunk[:, channel].reshape(-1, 1))
+        for chunk in chunks_x:
+            chunk[:, channel] = scaler_x.transform(chunk[:, channel].reshape(-1, 1)).squeeze()
+
+    logger.debug(f"Saving chunks of {record_name} to {interim_data_dir}...")
     os.makedirs(interim_data_dir, exist_ok=True)
 
-    np.savez(
-        os.path.join(interim_data_dir, f"{record_name}.npz"),
-        x=resampled_x,
-        y=vector_ann,
-    )
-    logger.debug(f"{record_name} saved to {os.path.join(interim_data_dir, record_name + '.npz')}.")
+    for i, (chunk_x, chunk_y) in enumerate(zip(chunks_x, chunks_y)):
+        for channel in range(chunk_x.shape[1]):
+            np.savez(
+                os.path.join(interim_data_dir, f"{dataset_name}#{record_name}#{channel}#{i}.npz"),
+                x=chunk_x[:, channel],
+                y=chunk_y,
+            )
+    logger.debug(f"Chunks of {record_name} saved to {interim_data_dir}.")
 
 
-def preprocess_dataset(dataset_name: str, target_fs: int, verbosity: str) -> None:
+def preprocess_dataset(dataset_name: str, target_fs: int, chunk_size: int, verbosity: str) -> None:
     """
     Process the entire dataset.
 
     :param dataset_name: Name of the dataset.
     :param target_fs: Target sampling frequency.
+    :param chunk_size: Number of samples per chunk.
     :param verbosity: Verbosity level for logging.
     """
     logger.remove()
@@ -202,230 +244,271 @@ def preprocess_dataset(dataset_name: str, target_fs: int, verbosity: str) -> Non
         tqdm(files, desc=f"Preprocessing files from {dataset_name}") if use_tqdm else files
     )
 
+    interim_data_dir = os.path.join(INTERIM_DATA_DIR, dataset_name)
     for file in file_iterator:
-        preprocess_record(
-            file, dataset_dir, target_fs, os.path.join(INTERIM_DATA_DIR, dataset_name)
-        )
+        preprocess_record(file, dataset_dir, target_fs, interim_data_dir, chunk_size)
 
-    logger.info(
-        f"All preprocessed ECG data from {dataset_name} saved to {os.path.join(INTERIM_DATA_DIR, dataset_name)}"
+    logger.info(f"All preprocessed ECG data from {dataset_name} saved to {interim_data_dir}")
+
+
+def calculate_distances(
+    train_count, val_count, test_count, group_size, total_current_samples, proportions
+):
+    predicted_train_dist = (train_count + group_size) / (total_current_samples + group_size)
+    predicted_val_dist = (val_count + group_size) / (total_current_samples + group_size)
+    predicted_test_dist = (test_count + group_size) / (total_current_samples + group_size)
+
+    train_dist = np.linalg.norm(
+        np.array(
+            [
+                predicted_train_dist,
+                val_count / (total_current_samples + group_size),
+                test_count / (total_current_samples + group_size),
+            ]
+        )
+        - proportions
+    )
+    val_dist = np.linalg.norm(
+        np.array(
+            [
+                train_count / (total_current_samples + group_size),
+                predicted_val_dist,
+                test_count / (total_current_samples + group_size),
+            ]
+        )
+        - proportions
+    )
+    test_dist = np.linalg.norm(
+        np.array(
+            [
+                train_count / (total_current_samples + group_size),
+                val_count / (total_current_samples + group_size),
+                predicted_test_dist,
+            ]
+        )
+        - proportions
     )
 
+    return train_dist, val_dist, test_dist
 
-def save_chunks(chunks, info, save_dir, use_tqdm: bool, scalers: dict) -> None:
-    """
-    Save chunks of data to the specified directory.
 
-    :param chunks: List of data chunks.
-    :param info: List of information tuples (dataset_name, file_name, channel, chunk_idx).
-    :param save_dir: Directory to save the chunks.
-    :param use_tqdm: Whether to use tqdm progress bar.
-    :param scalers: Dictionary of scalers for each dataset and channel.
+def iterative_group_balanced_split(df, stratify_col, group_col, proportions, random_state=42):
     """
-    iterator = (
-        tqdm(zip(chunks, info), desc=f"Saving data to {save_dir}", total=len(chunks), unit="chunk")
-        if use_tqdm
-        else zip(chunks, info)
-    )
-    for (chunk_x, chunk_y), (dataset_name, file_name, channel, chunk_idx) in iterator:
-        scaler_x = scalers[(dataset_name, channel)]
-        normalized_x = scaler_x.transform(chunk_x.reshape(-1, 1)).squeeze()
-        logger.debug(f"First 20 elements of chunk_x before saving: {chunk_x[:20]}")
-        logger.debug(f"First 20 elements of chunk_y before saving: {chunk_y[:20]}")
-        logger.debug(f"First 20 elements of normalized chunk_x: {normalized_x[:20]}")
-        np.savez(
-            os.path.join(
-                save_dir, f"{dataset_name}_{file_name}_chunk{chunk_idx}_channel{channel}.npz"
-            ),
-            x=normalized_x,
-            y=chunk_y,
+    Split data into training, validation, and test sets while maintaining class and group balance.
+
+    :param df: DataFrame with data.
+    :param stratify_col: Column with class labels (e.g., 0 for non-AFIB, 1 for AFIB).
+    :param group_col: Column identifying groups.
+    :param proportions: Tuple with split proportions (train, val, test).
+    :param random_state: Seed for reproducibility.
+    :return: train_set, val_set, test_set (DataFrames).
+    """
+    assert sum(proportions) == 1, "Proportions must sum to 1."
+
+    train_set = pd.DataFrame()
+    val_set = pd.DataFrame()
+    test_set = pd.DataFrame()
+
+    unused_samples = {"train": [], "val": [], "test": []}
+    excess_afib_samples = []
+
+    train_count = val_count = test_count = 0
+
+    group_sizes = df[group_col].value_counts().to_dict()
+    groups = sorted(group_sizes.keys(), key=lambda x: group_sizes[x], reverse=True)
+
+    # Phase 1: Iterating through groups
+    for group in tqdm(groups, desc="Processing groups in phase 1"):
+        group_data = df[df[group_col] == group]
+
+        # Split group into classes
+        non_afib_samples = group_data[group_data[stratify_col] == 0]
+        afib_samples = group_data[group_data[stratify_col] == 1]
+
+        # Balance the group
+        if len(non_afib_samples) > len(afib_samples):
+            # Excess non-AFIB samples
+            excess_non_afib = non_afib_samples.sample(
+                len(non_afib_samples) - len(afib_samples), random_state=random_state
+            )
+            non_afib_samples = non_afib_samples.drop(excess_non_afib.index)
+        elif len(afib_samples) > len(non_afib_samples):
+            # Excess AFIB samples — defer the entire record to phase 2
+            excess_afib_samples.append(group_data)
+            continue
+
+        # Balanced group
+        balanced_group = pd.concat([non_afib_samples, afib_samples])
+        group_size = len(balanced_group)
+
+        # Predicted proportions after adding the group
+        total_current_samples = train_count + val_count + test_count
+
+        train_dist, val_dist, test_dist = calculate_distances(
+            train_count, val_count, test_count, group_size, total_current_samples, proportions
         )
 
+        # Choose the best set based on minimum distance
+        if train_dist <= val_dist and train_dist <= test_dist:
+            train_set = pd.concat([train_set, balanced_group])
+            train_count += group_size
+            unused_samples["train"].append(excess_non_afib)
+        elif val_dist <= train_dist and val_dist <= test_dist:
+            val_set = pd.concat([val_set, balanced_group])
+            val_count += group_size
+            unused_samples["val"].append(excess_non_afib)
+        else:
+            test_set = pd.concat([test_set, balanced_group])
+            test_count += group_size
+            unused_samples["test"].append(excess_non_afib)
 
-def split_chunks(
-    all_chunks: list, file_info: list, chunk_size: int, test_size: float, val_size: float
-) -> tuple:
-    """
-    Split proportionally chunks to sets.
+    # Phase 2: Processing excess AFIB samples
+    def balance_with_non_afib(destination, excess_group, non_afib_needed):
+        available_samples = pd.concat([sample for sample in unused_samples[destination]])
+        balancing_samples = available_samples.sample(non_afib_needed, random_state=random_state)
+        # Ensure only indices present in the DataFrame are dropped
+        unused_samples[destination] = [
+            sample.drop(sample.index.intersection(balancing_samples.index))
+            for sample in unused_samples[destination]
+        ]
+        return pd.concat([balancing_samples, excess_group])
 
-    :param all_chunks: list of all chunks from dataset
-    :param file_info: list of file information for all chunks from dataset
-    :param chunk_size: Number of samples per chunk.
-    :param test_size: Proportion of the dataset to include in the test split.
-    :param val_size: Proportion of the dataset to include in the validation split.
-    """
-    combined = list(zip(all_chunks, file_info))
-    with_afib = [chunk for chunk in combined if np.sum(chunk[0][1]) > chunk_size * 0.0]
-    without_afib = [chunk for chunk in combined if np.sum(chunk[0][1]) <= chunk_size * 0.0]
-    logger.info(
-        f"{len(with_afib)/len(all_chunks) * 100:.2f} % chunks contains atrial fibrillation"
-    )
-
-    def split_group(group):
-        chunks, file_info = zip(*group)
-        train_chunks, temp_chunks, train_info, temp_info = train_test_split(
-            chunks, file_info, test_size=test_size + val_size, random_state=42
+    for excess_group in tqdm(
+        excess_afib_samples, desc="Processing excess AFIB samples in phase 2"
+    ):
+        # Calculate missing samples to balance the group
+        non_afib_needed = len(excess_group[excess_group[stratify_col] == 1]) * 2 - len(
+            excess_group
         )
-        val_chunks, test_chunks, val_info, test_info = train_test_split(
-            temp_chunks, temp_info, test_size=test_size / (test_size + val_size), random_state=42
+        excess_afib_len_after_balancing = len(excess_group) + non_afib_needed
+
+        total_current_samples = train_count + val_count + test_count
+
+        train_dist, val_dist, test_dist = calculate_distances(
+            train_count,
+            val_count,
+            test_count,
+            excess_afib_len_after_balancing,
+            total_current_samples,
+            proportions,
         )
-        return train_chunks, train_info, val_chunks, test_chunks, val_info, test_info
 
-    (
-        train_chunks_afib,
-        train_info_afib,
-        val_chunks_afib,
-        test_chunks_afib,
-        val_info_afib,
-        test_info_afib,
-    ) = split_group(with_afib)
-    (
-        train_chunks_NOafib,
-        train_info_NOafib,
-        val_chunks_NOafib,
-        test_chunks_NOafib,
-        val_info_NOafib,
-        test_info_NOafib,
-    ) = split_group(without_afib)
+        # Choose the best set based on minimum distance
+        if train_dist <= val_dist and train_dist <= test_dist:
+            balanced_group = balance_with_non_afib("train", excess_group, non_afib_needed)
+            train_set = pd.concat([train_set, balanced_group])
+            train_count += len(balanced_group)
+        elif val_dist <= train_dist and val_dist <= test_dist:
+            balanced_group = balance_with_non_afib("val", excess_group, non_afib_needed)
+            val_set = pd.concat([val_set, balanced_group])
+            val_count += len(balanced_group)
+        else:
+            balanced_group = balance_with_non_afib("test", excess_group, non_afib_needed)
+            test_set = pd.concat([test_set, balanced_group])
+            test_count += len(balanced_group)
 
-    train_chunks = train_chunks_afib + train_chunks_NOafib
-    val_chunks = val_chunks_afib + val_chunks_NOafib
-    test_chunks = test_chunks_afib + test_chunks_NOafib
-
-    train_info = train_info_afib + train_info_NOafib
-    val_info = val_info_afib + val_info_NOafib
-    test_info = test_info_afib + test_info_NOafib
-
-    def shuffle_together(chunks, log_info):
-        combined = list(zip(chunks, log_info))
-        np.random.shuffle(combined)
-        shuffled_chunks, shuffled_log_info = zip(*combined)
-        return list(shuffled_chunks), list(shuffled_log_info)
-
-    train_chunks, train_info = shuffle_together(train_chunks, train_info)
-    val_chunks, val_info = shuffle_together(val_chunks, val_info)
-    test_chunks, test_info = shuffle_together(test_chunks, test_info)
-
-    return train_chunks, train_info, val_chunks, val_info, test_chunks, test_info
+    return train_set, val_set, test_set
 
 
-def count_classes(chunks):
+def process_dataset(
+    test_size: float, val_size: float, verbosity: str, temp_file_path: str = "temp_results.npz"
+) -> None:
     """
-    Count the number of positive and negative classes in the chunks.
+    Split the dataset into balanced training, validation, and test sets.
 
-    :param chunks: List of data chunks.
-    :return: Tuple containing the number of positive and negative classes.
-    """
-    positive_count = sum(np.sum(chunk[1]) > 0 for chunk in chunks)
-    negative_count = len(chunks) - positive_count
-    return positive_count, negative_count
-
-
-def display_class_ratios(pos_count, neg_count, set_name):
-    """
-    Display the ratio of negative to positive classes.
-
-    :param pos_count: Number of positive classes.
-    :param neg_count: Number of negative classes.
-    :param set_name: Name of the dataset split (train, val, test).
-    """
-    ratio = neg_count / pos_count if pos_count > 0 else float("inf")
-    logger.info(f"{set_name} set: {neg_count} negative, {pos_count} positive, ratio: {ratio:.2f}")
-
-
-def process_dataset(chunk_size: int, test_size: float, val_size: float, verbosity: str) -> None:
-    """
-    Process the preprocessed dataset.
-
-    :param chunk_size: Number of samples per chunk.
     :param test_size: Proportion of the dataset to include in the test split.
     :param val_size: Proportion of the dataset to include in the validation split.
     :param verbosity: Verbosity level for logging.
+    :param temp_file_path: Path to the temporary file for saving/loading results.
     """
     logger.remove()
     logger.add(sys.stderr, level=verbosity.upper())
+    logger.info("Starting dataset processing...")
 
-    processed_data_dir = PROCESSED_DATA_DIR
-    train_dir = TRAIN_DATA_DIR
-    val_dir = VAL_DATA_DIR
-    test_dir = TEST_DATA_DIR
-    os.makedirs(INTERIM_DATA_DIR, exist_ok=True)
-    os.makedirs(train_dir, exist_ok=True)
-    os.makedirs(val_dir, exist_ok=True)
-    os.makedirs(test_dir, exist_ok=True)
+    dataset_dir = INTERIM_DATA_DIR
+    afib_files = {}
+    non_afib_files = {}
 
-    all_files = []
-    for dataset_name in os.listdir(INTERIM_DATA_DIR):
-        interim_data_dir = os.path.join(INTERIM_DATA_DIR, dataset_name)
-        if os.path.isdir(interim_data_dir):
-            files = [
-                (dataset_name, os.path.join(interim_data_dir, file))
-                for file in os.listdir(interim_data_dir)
-                if file.endswith(".npz")
-            ]
-            all_files.extend(files)
-
-    logger.info(f"Processing {len(all_files)} preprocessed ECG records from all datasets...")
     use_tqdm = verbosity.upper() != "DEBUG"
-    file_iterator = (
-        tqdm(all_files, desc="Processing files", unit="file") if use_tqdm else all_files
+
+    afib_count = 0
+    total_count = 0
+
+    for root, _, files in os.walk(dataset_dir):
+        if use_tqdm:
+            files = tqdm(files, desc=f"Processing files in {root}")
+        for file in files:
+            if file.endswith(".npz"):
+                file_path = os.path.join(root, file)
+                dataset_name = os.path.basename(root)
+                record_name = file.split("#")[1]
+                unique_record_name = f"{dataset_name}#{record_name}"
+                if unique_record_name not in afib_files:
+                    afib_files[unique_record_name] = []
+                if unique_record_name not in non_afib_files:
+                    non_afib_files[unique_record_name] = []
+                data = np.load(file_path)
+                if np.any(data["y"] == 1):
+                    afib_files[unique_record_name].append(file_path)
+                    afib_count += 1
+                else:
+                    non_afib_files[unique_record_name].append(file_path)
+                total_count += 1
+
+    logger.info("Files categorized into AFIB and non-AFIB.")
+    afib_percentage = (afib_count / total_count) * 100 if total_count > 0 else 0
+    logger.info(f"Total files: {total_count}, AFIB percentage: {afib_percentage:.2f}%")
+
+    records = []
+    for record_name, files in afib_files.items():
+        for file in files:
+            records.append((file, 1, record_name))
+    for record_name, files in non_afib_files.items():
+        for file in files:
+            records.append((file, 0, record_name))
+
+    df = pd.DataFrame(records, columns=["file_path", "label", "group_id"])
+
+    proportions = (1 - test_size - val_size, val_size, test_size)
+    train_set, val_set, test_set = iterative_group_balanced_split(
+        df, stratify_col="label", group_col="group_id", proportions=proportions
     )
 
-    all_chunks = []
-    file_info = []
-    scalers = {}
+    train_files = train_set["file_path"].tolist()
+    val_files = val_set["file_path"].tolist()
+    test_files = test_set["file_path"].tolist()
 
-    for dataset_name, file in file_iterator:
-        logger.debug(f"Processing file {file} from dataset {dataset_name}...")
-        data = np.load(file)
-        x = data["x"]
-        y = data["y"]
+    logger.info("Files assigned to training, validation, and test sets.")
 
-        for channel in range(x.shape[1]):
-            if (dataset_name, channel) not in scalers:
-                scalers[(dataset_name, channel)] = MinMaxScaler(feature_range=(-1, 1))
-            scaler_x = scalers[(dataset_name, channel)]
+    def copy_files(file_list, target_dir):
+        os.makedirs(target_dir, exist_ok=True)
+        for file in tqdm(file_list, desc=f"Copying files to {target_dir}"):
+            shutil.copy(file, target_dir)
+        logger.info(f"Copied {len(file_list)} files to {target_dir}.")
 
-            chunks_x = split_data(x[:, channel], chunk_size)
-            chunks_y = split_data(y, chunk_size)
+    copy_files(train_files, TRAIN_DATA_DIR)
+    copy_files(val_files, VAL_DATA_DIR)
+    copy_files(test_files, TEST_DATA_DIR)
 
-            for chunk in chunks_x:
-                scaler_x.partial_fit(chunk.reshape(-1, 1))
+    def log_ratios(file_list, label):
+        afib_count = 0
+        for file in tqdm(file_list, desc=f"Calculating ratios for {label} set"):
+            if np.any(np.load(file)["y"] == 1):
+                afib_count += 1
+        non_afib_count = len(file_list) - afib_count
+        total_count = len(file_list)
+        logger.info(
+            f"{label} set: Total files: {total_count}, AFIB: {afib_count} ({(afib_count / total_count) * 100:.2f}%), "
+            f"Non-AFIB: {non_afib_count} ({(non_afib_count / total_count) * 100:.2f}%)"
+        )
 
-            all_chunks.extend(zip(chunks_x, chunks_y))
-            file_info.extend(
-                [
-                    (dataset_name, os.path.basename(file).split(".")[0], channel, i)
-                    for i in range(len(chunks_x))
-                ]
-            )
+    log_ratios(train_files, "Training")
+    log_ratios(val_files, "Validation")
+    log_ratios(test_files, "Test")
 
     logger.info(
-        f"Splitting data into training, validation, and test sets with test size {test_size} and validation size {val_size}..."
+        f"Data split into training, validation, and test sets and copied to respective directories."
     )
-
-    train_chunks, train_info, val_chunks, val_info, test_chunks, test_info = split_chunks(
-        all_chunks, file_info, chunk_size, test_size, val_size
-    )
-
-    logger.info(f"Saving training data to {train_dir}...")
-    save_chunks(train_chunks, train_info, train_dir, use_tqdm, scalers)
-
-    logger.info(f"Saving validation data to {val_dir}...")
-    save_chunks(val_chunks, val_info, val_dir, use_tqdm, scalers)
-
-    logger.info(f"Saving test data to {test_dir}...")
-    save_chunks(test_chunks, test_info, test_dir, use_tqdm, scalers)
-
-    train_pos, train_neg = count_classes(train_chunks)
-    val_pos, val_neg = count_classes(val_chunks)
-    test_pos, test_neg = count_classes(test_chunks)
-
-    display_class_ratios(train_pos, train_neg, "Training")
-    display_class_ratios(val_pos, val_neg, "Validation")
-    display_class_ratios(test_pos, test_neg, "Test")
-
-    logger.info(f"All processed ECG data saved to {processed_data_dir}")
 
 
 def clear_data(dataset_name: Union[str, None], data_type: str) -> None:
