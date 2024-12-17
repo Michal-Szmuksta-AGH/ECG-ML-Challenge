@@ -391,3 +391,86 @@ class Deep1DCNN(nn.Module):
         x = x.squeeze(-1)
 
         return x
+
+class UNet1D(nn.Module):
+    def __init__(self, input_channels=1, output_channels=4):
+        super(UNet1D, self).__init__()
+
+        # Definicja bloku Convolution + BatchNorm + ReLU
+        def conv_block(in_channels, out_channels, kernel_size=9, padding=4):
+            return nn.Sequential(
+                nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, padding=padding),
+                nn.BatchNorm1d(out_channels),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(out_channels, out_channels, kernel_size=kernel_size, padding=padding),
+                nn.BatchNorm1d(out_channels),
+                nn.ReLU(inplace=True)
+            )
+
+        # Blok UpConv + ZeroPadding
+        def upconv_block(in_channels, out_channels):
+            return nn.Sequential(
+                nn.ConvTranspose1d(in_channels, out_channels, kernel_size=8, stride=2, padding=3)
+            )
+
+        # Bloki z warstwami
+        self.enc1 = conv_block(input_channels, 4)   # Pierwszy blok enkodera
+        self.pool1 = nn.MaxPool1d(kernel_size=2)
+
+        self.enc2 = conv_block(4, 8)  # Drugi blok
+        self.pool2 = nn.MaxPool1d(kernel_size=2)
+
+        self.enc3 = conv_block(8, 16)  # Trzeci blok
+        self.pool3 = nn.MaxPool1d(kernel_size=2)
+
+        self.enc4 = conv_block(16, 32)  # Czwarty blok
+        self.pool4 = nn.MaxPool1d(kernel_size=2)
+
+        self.bottleneck = conv_block(32, 64)  # Blok butelkowy (środek sieci)
+
+        # Dekoder (dekonwolucje i łączenie)
+        self.up4 = upconv_block(64, 32)
+        self.dec4 = conv_block(64, 32)
+
+        self.up3 = upconv_block(32, 16)
+        self.dec3 = conv_block(32, 16)
+
+        self.up2 = upconv_block(16, 8)
+        self.dec2 = conv_block(16, 8)
+
+        self.up1 = upconv_block(8, 4)
+        self.dec1 = conv_block(8, 4)
+
+        # Warstwa wyjściowa
+        self.out_conv = nn.Conv1d(4, output_channels, kernel_size=1)
+
+    def forward(self, x):
+        # Encoder
+        x = x.unsqueeze(1)
+
+        enc1 = self.enc1(x)
+        enc2 = self.enc2(self.pool1(enc1))
+        enc3 = self.enc3(self.pool2(enc2))
+        enc4 = self.enc4(self.pool3(enc3))
+
+        # Bottleneck
+        bottleneck = self.bottleneck(self.pool4(enc4))
+
+        # Decoder
+        dec4 = self.up4(bottleneck)
+        dec4 = self.dec4(torch.cat((dec4, enc4), dim=1))
+
+        dec3 = self.up3(dec4)
+        dec3 = self.dec3(torch.cat((dec3, enc3), dim=1))
+
+        dec2 = self.up2(dec3)
+        dec2 = self.dec2(torch.cat((dec2, enc2), dim=1))
+
+        dec1 = self.up1(dec2)
+        dec1 = self.dec1(torch.cat((dec1, enc1), dim=1))
+
+        # Output
+        out = self.out_conv(dec1)
+        out = out.squeeze(-1)
+
+        return out

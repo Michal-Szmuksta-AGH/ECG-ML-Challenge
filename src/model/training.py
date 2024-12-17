@@ -5,6 +5,7 @@ import torch
 import torchmetrics
 import torch.nn as nn
 import torch.optim as optim
+import numpy as np
 
 from tqdm import tqdm
 from loguru import logger
@@ -41,6 +42,8 @@ def train(
         optimizer.zero_grad()
 
         outputs = model(x)
+        outputs = np.argmax(outputs, axis=0)
+
         loss = criterion(outputs, y)
         loss.backward()
         optimizer.step()
