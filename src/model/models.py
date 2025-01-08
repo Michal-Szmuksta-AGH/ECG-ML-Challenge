@@ -393,84 +393,74 @@ class Deep1DCNN(nn.Module):
         return x
 
 class UNet1D(nn.Module):
-    def __init__(self, input_channels=1, output_channels=4):
+    def __init__(self, input_channels=1):
         super(UNet1D, self).__init__()
-
-        # Definicja bloku Convolution + BatchNorm + ReLU
-        def conv_block(in_channels, out_channels, kernel_size=9, padding=4):
-            return nn.Sequential(
-                nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, padding=padding),
-                nn.BatchNorm1d(out_channels),
-                nn.ReLU(inplace=True),
-                nn.Conv1d(out_channels, out_channels, kernel_size=kernel_size, padding=padding),
-                nn.BatchNorm1d(out_channels),
-                nn.ReLU(inplace=True)
-            )
-
-        # Blok UpConv + ZeroPadding
-        def upconv_block(in_channels, out_channels):
-            return nn.Sequential(
-                nn.ConvTranspose1d(in_channels, out_channels, kernel_size=8, stride=2, padding=3)
-            )
-
-        # Bloki z warstwami
-        self.enc1 = conv_block(input_channels, 4)   # Pierwszy blok enkodera
-        self.pool1 = nn.MaxPool1d(kernel_size=2)
-
-        self.enc2 = conv_block(4, 8)  # Drugi blok
-        self.pool2 = nn.MaxPool1d(kernel_size=2)
-
-        self.enc3 = conv_block(8, 16)  # Trzeci blok
-        self.pool3 = nn.MaxPool1d(kernel_size=2)
-
-        self.enc4 = conv_block(16, 32)  # Czwarty blok
-        self.pool4 = nn.MaxPool1d(kernel_size=2)
-
-        self.bottleneck = conv_block(32, 64)  # Blok butelkowy (środek sieci)
-
-        # Dekoder (dekonwolucje i łączenie)
-        self.up4 = upconv_block(64, 32)
-        self.dec4 = conv_block(64, 32)
-
-        self.up3 = upconv_block(32, 16)
-        self.dec3 = conv_block(32, 16)
-
-        self.up2 = upconv_block(16, 8)
-        self.dec2 = conv_block(16, 8)
-
-        self.up1 = upconv_block(8, 4)
-        self.dec1 = conv_block(8, 4)
-
-        # Warstwa wyjściowa
-        self.out_conv = nn.Conv1d(4, output_channels, kernel_size=1)
+        self.encoder1 = self.conv_block(input_channels, 8)
+        self.encoder2 = self.conv_block(8, 16)
+        self.encoder3 = self.conv_block(16, 32)
+        self.encoder4 = self.conv_block(32, 64)
+        
+        self.pool = nn.MaxPool1d(kernel_size=2, stride=2)
+        
+        self.bottleneck = self.conv_block(64, 96)
+        
+        self.upconv4 = nn.ConvTranspose1d(96, 64, kernel_size=8, stride=2, padding=3)
+        self.decoder4 = self.conv_block(64 + 64, 32)
+        self.upconv3 = nn.ConvTranspose1d(32, 32, kernel_size=8, stride=2, padding=3)
+        self.decoder3 = self.conv_block(32 + 32, 16)
+        self.upconv2 = nn.ConvTranspose1d(16, 16, kernel_size=8, stride=2, padding=3)
+        self.decoder2 = self.conv_block(16 + 16, 8)
+        self.upconv1 = nn.ConvTranspose1d(8, 8, kernel_size=8, stride=2, padding=3)
+        self.decoder1 = self.conv_block(8 + 8, 8)
+        
+        # Output layer that produces probabilities for each position
+        self.final_conv = nn.Conv1d(8, 1, kernel_size=1)
+        self.sigmoid = nn.Sigmoid()  # Activation for probability output
+        
+    def conv_block(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.Conv1d(in_channels, out_channels, kernel_size=9, padding=4),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU(),
+            nn.Conv1d(out_channels, out_channels, kernel_size=9, padding=4),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU(),
+        )
 
     def forward(self, x):
-        # Encoder
+        # Encoding path
         x = x.unsqueeze(1)
 
-        enc1 = self.enc1(x)
-        enc2 = self.enc2(self.pool1(enc1))
-        enc3 = self.enc3(self.pool2(enc2))
-        enc4 = self.enc4(self.pool3(enc3))
-
+        enc1 = self.encoder1(x)
+        enc2 = self.encoder2(self.pool(enc1))
+        enc3 = self.encoder3(self.pool(enc2))
+        enc4 = self.encoder4(self.pool(enc3))
+        
         # Bottleneck
-        bottleneck = self.bottleneck(self.pool4(enc4))
+        bottleneck = self.bottleneck(self.pool(enc4))
+        
+        # Decoding path
+        dec4 = self.upconv4(bottleneck)
+        dec4 = torch.cat((dec4, enc4), dim=1)
+        dec4 = self.decoder4(dec4)
+        
+        dec3 = self.upconv3(dec4)
+        dec3 = torch.cat((dec3, enc3), dim=1)
+        dec3 = self.decoder3(dec3)
+        
+        dec2 = self.upconv2(dec3)
+        dec2 = torch.cat((dec2, enc2), dim=1)
+        dec2 = self.decoder2(dec2)
+        
+        dec1 = self.upconv1(dec2)
+        dec1 = torch.cat((dec1, enc1), dim=1)
+        dec1 = self.decoder1(dec1)
+        
+        # Final layer: Single class output (logits)
+        logits = self.final_conv(dec1)
+        
+        # Apply sigmoid for probabilities
+        output = self.sigmoid(logits)
+        output = output.squeeze(1)
 
-        # Decoder
-        dec4 = self.up4(bottleneck)
-        dec4 = self.dec4(torch.cat((dec4, enc4), dim=1))
-
-        dec3 = self.up3(dec4)
-        dec3 = self.dec3(torch.cat((dec3, enc3), dim=1))
-
-        dec2 = self.up2(dec3)
-        dec2 = self.dec2(torch.cat((dec2, enc2), dim=1))
-
-        dec1 = self.up1(dec2)
-        dec1 = self.dec1(torch.cat((dec1, enc1), dim=1))
-
-        # Output
-        out = self.out_conv(dec1)
-        out = out.squeeze(-1)
-
-        return out
+        return output

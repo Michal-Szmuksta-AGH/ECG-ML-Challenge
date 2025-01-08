@@ -42,7 +42,6 @@ def train(
         optimizer.zero_grad()
 
         outputs = model(x)
-        outputs = np.argmax(outputs, axis=0)
 
         loss = criterion(outputs, y)
         loss.backward()
@@ -191,7 +190,7 @@ def train_model(
     if resume_model:
         model.load_state_dict(torch.load(resume_model))
         logger.info(f"Resumed training from model: {resume_model}")
-    model = torch.compile(model)
+    # model = torch.compile(model)
     model = model.to(device)
 
     pos_weight = torch.tensor([4.74]).to(device)
@@ -207,3 +206,4 @@ def train_model(
 
     save_model_and_report(model, model_type, epochs, batch_size, learning_rate)
     wandb.finish()
+
