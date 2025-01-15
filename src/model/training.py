@@ -16,6 +16,20 @@ from src.dataset.dataloaders import ECGDataset
 from src.model.models import get_model
 
 
+class DiceLoss1D(nn.Module):
+    def __init__(self, smooth=1e-6):
+        super(DiceLoss1D, self).__init__()
+        self.smooth = smooth
+
+    def forward(self, preds, targets):
+        preds = torch.sigmoid(preds)
+        intersection = torch.sum(targets * preds)
+        union = torch.sum(targets) + torch.sum(preds)
+        dice_loss = 1 - (2 * intersection + self.smooth) / (union + self.smooth)
+
+        return dice_loss
+
+
 def train(
     model: nn.Module,
     train_loader: DataLoader,
@@ -73,6 +87,7 @@ def evaluate(
     precision_metric = torchmetrics.Precision(task="binary").to(device)
     recall_metric = torchmetrics.Recall(task="binary").to(device)
     f1_metric = torchmetrics.F1Score(task="binary").to(device)
+    dice_metric = torchmetrics.Dice().to(device)
     total_loss = 0
     calculate_loss = prefix != "Train"
 
@@ -91,6 +106,7 @@ def evaluate(
             precision_metric.update(preds, y.int())
             recall_metric.update(preds, y.int())
             f1_metric.update(preds, y.int())
+            dice_metric.update(preds, y.int())
 
     if calculate_loss:
         avg_loss = total_loss / len(data_loader)
@@ -101,11 +117,13 @@ def evaluate(
     precision = precision_metric.compute().item()
     recall = recall_metric.compute().item()
     f1 = f1_metric.compute().item()
+    dice = dice_metric.compute().item()
 
     logger.info(f"{prefix} Accuracy: {accuracy * 100:.2f}%")
     logger.info(f"{prefix} Precision: {precision:.4f}")
     logger.info(f"{prefix} Recall: {recall:.4f}")
     logger.info(f"{prefix} F1 Score: {f1:.4f}")
+    logger.info(f"{prefix} Dice Score: {dice:.4f}")
 
     wandb.log(
         {
@@ -113,6 +131,7 @@ def evaluate(
             f"{prefix} Precision": precision,
             f"{prefix} Recall": recall,
             f"{prefix} F1 Score": f1,
+            f"{prefix} Dice Score": dice,
         }
     )
 
@@ -191,8 +210,9 @@ def train_model(
     model = torch.compile(model)
     model = model.to(device)
 
-    pos_weight = torch.tensor([4.74]).to(device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    # pos_weight = torch.tensor([3.7]).to(device)
+    # criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    criterion = DiceLoss1D()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     for epoch in range(wandb.config.epochs):

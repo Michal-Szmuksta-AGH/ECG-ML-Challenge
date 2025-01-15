@@ -391,3 +391,77 @@ class Deep1DCNN(nn.Module):
         x = x.squeeze(-1)
 
         return x
+
+
+class UNet1D(nn.Module):
+    def __init__(self, input_channels=1):
+        super(UNet1D, self).__init__()
+        self.encoder1 = self.conv_block(input_channels, 8)
+        self.encoder2 = self.conv_block(8, 16)
+        self.encoder3 = self.conv_block(16, 32)
+        self.encoder4 = self.conv_block(32, 64)
+
+        self.pool = nn.MaxPool1d(kernel_size=2, stride=2)
+
+        self.bottleneck = self.conv_block(64, 96)
+
+        self.upconv4 = nn.ConvTranspose1d(96, 64, kernel_size=8, stride=2, padding=3)
+        self.decoder4 = self.conv_block(64 + 64, 32)
+        self.upconv3 = nn.ConvTranspose1d(32, 32, kernel_size=8, stride=2, padding=3)
+        self.decoder3 = self.conv_block(32 + 32, 16)
+        self.upconv2 = nn.ConvTranspose1d(16, 16, kernel_size=8, stride=2, padding=3)
+        self.decoder2 = self.conv_block(16 + 16, 8)
+        self.upconv1 = nn.ConvTranspose1d(8, 8, kernel_size=8, stride=2, padding=3)
+        self.decoder1 = self.conv_block(8 + 8, 8)
+
+        # Output layer that produces probabilities for each position
+        self.final_conv = nn.Conv1d(8, 1, kernel_size=1)
+        self.sigmoid = nn.Sigmoid()  # Activation for probability output
+
+    def conv_block(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.Conv1d(in_channels, out_channels, kernel_size=9, padding=4),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU(),
+            nn.Conv1d(out_channels, out_channels, kernel_size=9, padding=4),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+        # Encoding path
+        x = x.unsqueeze(1)
+
+        enc1 = self.encoder1(x)
+        enc2 = self.encoder2(self.pool(enc1))
+        enc3 = self.encoder3(self.pool(enc2))
+        enc4 = self.encoder4(self.pool(enc3))
+
+        # Bottleneck
+        bottleneck = self.bottleneck(self.pool(enc4))
+
+        # Decoding path
+        dec4 = self.upconv4(bottleneck)
+        dec4 = torch.cat((dec4, enc4), dim=1)
+        dec4 = self.decoder4(dec4)
+
+        dec3 = self.upconv3(dec4)
+        dec3 = torch.cat((dec3, enc3), dim=1)
+        dec3 = self.decoder3(dec3)
+
+        dec2 = self.upconv2(dec3)
+        dec2 = torch.cat((dec2, enc2), dim=1)
+        dec2 = self.decoder2(dec2)
+
+        dec1 = self.upconv1(dec2)
+        dec1 = torch.cat((dec1, enc1), dim=1)
+        dec1 = self.decoder1(dec1)
+
+        # Final layer: Single class output (logits)
+        logits = self.final_conv(dec1)
+
+        # Apply sigmoid for probabilities
+        # output = self.sigmoid(logits)
+        output = logits.squeeze(1)
+
+        return output
