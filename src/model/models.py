@@ -656,3 +656,103 @@ class GPTMultiScaleConvLSTMModelv2(nn.Module):
         x = self.fc2(x)  # Shape: [batch_size, seq_length, 1]
 
         return x.squeeze(-1)  # Output shape: [batch_size, seq_length]
+
+
+class ConvolutionalBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ConvolutionalBlock, self).__init__()
+        self.conv = nn.Conv1d(
+            in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1
+        )
+        self.bn = nn.BatchNorm1d(out_channels)
+        self.relu = nn.ReLU()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+
+        return x
+
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResidualBlock, self).__init__()
+        self.skipconv = nn.Conv1d(in_channels, out_channels, kernel_size=1)
+        self.convblock1 = ConvolutionalBlock(in_channels, out_channels)
+        self.convblock2 = ConvolutionalBlock(out_channels, out_channels)
+        self.relu1 = nn.ReLU()
+
+    def forward(self, x):
+        skip = self.skipconv(x)
+        x = self.convblock1(x)
+        x = self.convblock2(x)
+        x = x + skip
+        x = self.relu1(x)
+
+        return x
+
+
+class UpsampleBlock(nn.Module):
+    def __init__(self, in_size, out_size):
+        super(UpsampleBlock, self).__init__()
+        self.convtrans = nn.ConvTranspose1d(
+            in_size,
+            out_size,
+            kernel_size=3,
+            padding=1,
+            output_padding=1,
+            stride=2,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.convtrans(x)
+
+        return x
+
+
+class BestUNet(nn.Module):
+    def __init__(self, depth=64):
+        super(BestUNet, self).__init__()
+        self.residual1 = ResidualBlock(1, depth)
+        self.maxpool1 = nn.MaxPool1d(kernel_size=2, stride=2)
+        self.residual2 = ResidualBlock(depth, depth * 2)
+        self.maxpool2 = nn.MaxPool1d(kernel_size=2, stride=2)
+        self.residual3 = ResidualBlock(depth * 2, depth * 4)
+        self.maxpool3 = nn.MaxPool1d(kernel_size=2, stride=2)
+        self.residual4 = ResidualBlock(depth * 4, depth * 8)
+        self.maxpool4 = nn.MaxPool1d(kernel_size=2, stride=2)
+        self.residual5 = ResidualBlock(depth * 8, depth * 16)
+        self.upsample1 = UpsampleBlock(depth * 16, depth * 8)
+        self.residual6 = ResidualBlock(depth * 16, depth * 8)
+        self.upsample2 = UpsampleBlock(depth * 8, depth * 4)
+        self.residual7 = ResidualBlock(depth * 8, depth * 4)
+        self.upsample3 = UpsampleBlock(depth * 4, depth * 2)
+        self.residual8 = ResidualBlock(depth * 4, depth * 2)
+        self.upsample4 = UpsampleBlock(depth * 2, depth)
+        self.residual9 = ResidualBlock(depth * 2, depth)
+        self.convblock = ConvolutionalBlock(depth, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.unsqueeze(1)
+        rs1 = self.residual1(x)
+        x = self.maxpool1(rs1)
+        rs2 = self.residual2(x)
+        x = self.maxpool2(rs2)
+        rs3 = self.residual3(x)
+        x = self.maxpool3(rs3)
+        rs4 = self.residual4(x)
+        x = self.maxpool4(rs4)
+        x = self.residual5(x)
+        x = self.upsample1(x)
+        x = self.residual6(torch.cat((x, rs4), dim=1))
+        x = self.upsample2(x)
+        x = self.residual7(torch.cat((x, rs3), dim=1))
+        x = self.upsample3(x)
+        x = self.residual8(torch.cat((x, rs2), dim=1))
+        x = self.upsample4(x)
+        x = self.residual9(torch.cat((x, rs1), dim=1))
+        x = self.convblock(x)
+        x = x.squeeze(1)
+
+        return x

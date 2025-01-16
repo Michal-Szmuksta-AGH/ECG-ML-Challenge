@@ -285,17 +285,17 @@ def split_into_chunks_truncate(rr_intervals, labels, chunk_size, step):
     n = len(rr_intervals)
     rr_chunks = []
     label_chunks = []
-    
+
     # Tworzenie okien o przesuwie "step"
     for i in range(0, n - chunk_size + 1, step):
-        rr_chunks.append(rr_intervals[i:i + chunk_size])
-        label_chunks.append(labels[i:i + chunk_size])
-    
+        rr_chunks.append(rr_intervals[i : i + chunk_size])
+        label_chunks.append(labels[i : i + chunk_size])
+
     # Konwersja list na tablice numpy
     rr_chunks = np.array(rr_chunks)
     label_chunks = np.array(label_chunks)
 
-    return rr_chunks, label_chunks
+    return rr_chunks.squeeze(), label_chunks.squeeze()
 
 
 def process_dataset_v2(test_size: float, val_size: float, verbosity: str) -> None:
