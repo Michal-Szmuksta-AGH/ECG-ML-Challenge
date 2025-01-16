@@ -58,7 +58,7 @@ def clear_dataset(dataset_name: Union[str, None] = None, data_type: str = "both"
 
 @app.command()
 def preprocess_dataset(
-    dataset_name: str, target_fs: int, chunk_size: int, verbosity: str = "INFO", version: int = 2
+    dataset_name: str, target_fs: int, chunk_size: int, step:int = 5, verbosity: str = "INFO", version: int = 2
 ) -> None:
     """
     Preprocess the specified WFDB dataset.
@@ -66,13 +66,14 @@ def preprocess_dataset(
     :param dataset_name: Name of the dataset.
     :param target_fs: Target sampling frequency.
     :param chunk_size: Number of samples per chunk.
+    :param step: Step of window step while creating chunks.
     :param verbosity: Verbosity level for logging.
     :param version: Version of the preprocessing function to use (1 or 2).
     """
     if version == 1:
         processing.preprocess_dataset(dataset_name, target_fs, chunk_size, verbosity)
     elif version == 2:
-        processingv2.preprocess_dataset_v2(dataset_name, target_fs, chunk_size, verbosity)
+        processingv2.preprocess_dataset_v2(dataset_name, target_fs, chunk_size, step, verbosity)
     else:
         raise ValueError("Invalid version specified. Use 1 or 2.")
 
@@ -102,6 +103,7 @@ def create_dataset(
     chunk_size: int,
     target_fs: int,
     include_datasets: str,
+    step: int = 64,
     test_size: float = 0.2,
     val_size: float = 0.1,
     verbosity: str = "INFO",
@@ -113,6 +115,7 @@ def create_dataset(
     :param chunk_size: Number of samples per chunk.
     :param target_fs: Target sampling frequency.
     :param include_datasets: Space-separated list of datasets to include.
+    :param step: Step of window step while creating chunks.
     :param test_size: Proportion of the dataset to include in the test split.
     :param val_size: Proportion of the dataset to include in the validation split.
     :param verbosity: Verbosity level for logging.
@@ -129,7 +132,7 @@ def create_dataset(
         if version == 1:
             processing.preprocess_dataset(dataset_name, target_fs, chunk_size, verbosity)
         elif version == 2:
-            processingv2.preprocess_dataset_v2(dataset_name, target_fs, chunk_size, verbosity)
+            processingv2.preprocess_dataset_v2(dataset_name, target_fs, chunk_size, step, verbosity)
         else:
             raise ValueError("Invalid version specified. Use 1 or 2.")
 

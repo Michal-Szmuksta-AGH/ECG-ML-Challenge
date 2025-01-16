@@ -21,7 +21,7 @@ import shutil
 
 
 def preprocess_dataset_v2(
-    dataset_name: str, target_fs: int, chunk_size: int, verbosity: str
+    dataset_name: str, target_fs: int, chunk_size: int, step: int, verbosity: str
 ) -> None:
     """
     Process the entire dataset with QRS feature extraction.
@@ -29,6 +29,7 @@ def preprocess_dataset_v2(
     :param dataset_name: Name of the dataset.
     :param target_fs: Target sampling frequency.
     :param chunk_size: Number of samples per chunk.
+    :param step: Step of window step while creating chunks.
     :param verbosity: Verbosity level for logging.
     """
     logger.remove()
@@ -86,7 +87,7 @@ def preprocess_dataset_v2(
         # Split the record into chunks
         logger.debug(f"Splitting {file} into chunks of size {chunk_size}...")
         rr_interval_chunks, label_chunks = split_into_chunks_truncate(
-            rr_intervals, labels, chunk_size
+            rr_intervals, labels, chunk_size, step
         )
 
         # Save the chunks
@@ -280,15 +281,19 @@ def mark_rr_intervals(qrs_locs, afib_segments):
     return np.array(afib_labels).reshape(-1, 1)
 
 
-def split_into_chunks_truncate(rr_intervals, labels, chunk_size):
+def split_into_chunks_truncate(rr_intervals, labels, chunk_size, step):
     n = len(rr_intervals)
-    num_chunks = n // chunk_size
-
-    truncated_rr_intervals = rr_intervals[: num_chunks * chunk_size]
-    truncated_labels = labels[: num_chunks * chunk_size]
-
-    rr_chunks = truncated_rr_intervals.reshape(num_chunks, chunk_size)
-    label_chunks = truncated_labels.reshape(num_chunks, chunk_size)
+    rr_chunks = []
+    label_chunks = []
+    
+    # Tworzenie okien o przesuwie "step"
+    for i in range(0, n - chunk_size + 1, step):
+        rr_chunks.append(rr_intervals[i:i + chunk_size])
+        label_chunks.append(labels[i:i + chunk_size])
+    
+    # Konwersja list na tablice numpy
+    rr_chunks = np.array(rr_chunks)
+    label_chunks = np.array(label_chunks)
 
     return rr_chunks, label_chunks
 
