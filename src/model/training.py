@@ -64,9 +64,8 @@ def train(
     """
     model.train()
     total_loss = 0
-    for batch in tqdm(train_loader, desc="Training"):
-        x, y = batch
-        x, y = x.to(device), y.to(device).float()
+    for x, y in tqdm(train_loader, desc="Training"):
+        x, y = x.to(device).cuda(non_blocking=True), y.to(device).float().cuda(non_blocking=True)
 
         optimizer.zero_grad()
 
