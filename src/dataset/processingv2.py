@@ -131,6 +131,11 @@ def load_record_and_annotations(dataset_name, dataset_dir, file):
         annotation = wfdb.rdann(os.path.join(dataset_dir, file), "atr")
         qrs_annotation = wfdb.rdann(os.path.join(dataset_dir, file), "qrs")
         return record, annotation, qrs_annotation
+    elif dataset_name == "shdb-af":
+        record = wfdb.rdrecord(os.path.join(dataset_dir, file))
+        annotation = wfdb.rdann(os.path.join(dataset_dir, file), "atr")
+        qrs_annotation = wfdb.rdann(os.path.join(dataset_dir, file), "qrs")
+        return record, annotation, qrs_annotation
 
 
 def reject_unacceptable_files(dataset_name, files):
@@ -144,6 +149,8 @@ def reject_unacceptable_files(dataset_name, files):
         # TODO można usunąć pliki z zaszumionymi danymi
         pass
     elif dataset_name == "long_term":
+        pass
+    elif dataset_name == "shdb-af":
         pass
 
     return files
@@ -160,6 +167,8 @@ def get_channel_for_qrs_extraction(dataset_name):
         return 1
     elif dataset_name == "long_term":
         return 0
+    elif dataset_name == "shdb-af":
+        return 0
 
 
 def get_qrs_locs(dataset_name, resampled_annotation, resampled_qrs_annotation):
@@ -172,6 +181,8 @@ def get_qrs_locs(dataset_name, resampled_annotation, resampled_qrs_annotation):
     elif dataset_name == "2017_challenge":
         qrs_locs = resampled_annotation.sample
     elif dataset_name == "long_term":
+        qrs_locs = resampled_qrs_annotation.sample
+    elif dataset_name == "shdb-af":
         qrs_locs = resampled_qrs_annotation.sample
     return qrs_locs
 

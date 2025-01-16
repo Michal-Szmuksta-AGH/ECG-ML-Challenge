@@ -262,6 +262,97 @@ class GPTMultiScaleConvGRUModel(nn.Module):
         return x.squeeze(-1)  # Output shape: [batch_size, seq_length]
 
 
+class GPTMultiScaleConvLSTMModelv2(nn.Module):
+    def __init__(self) -> None:
+        """
+        Initialize the GPTMultiScaleConvGRUModel.
+        """
+        super(GPTMultiScaleConvLSTMModelv2, self).__init__()
+
+        # First scale
+        self.conv1_1 = nn.Conv1d(1, 16, kernel_size=3, padding=1)
+        self.bn1_1 = nn.BatchNorm1d(16)
+        self.conv1_2 = nn.Conv1d(16, 32, kernel_size=3, padding=1)
+        self.bn1_2 = nn.BatchNorm1d(32)
+        self.conv1_3 = nn.Conv1d(32, 64, kernel_size=3, padding=1)
+        self.bn1_3 = nn.BatchNorm1d(64)
+        self.shortcut1 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
+
+        # Second scale
+        self.conv2_1 = nn.Conv1d(1, 16, kernel_size=5, padding=2)
+        self.bn2_1 = nn.BatchNorm1d(16)
+        self.conv2_2 = nn.Conv1d(16, 32, kernel_size=5, padding=2)
+        self.bn2_2 = nn.BatchNorm1d(32)
+        self.conv2_3 = nn.Conv1d(32, 64, kernel_size=5, padding=2)
+        self.bn2_3 = nn.BatchNorm1d(64)
+        self.shortcut2 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
+
+        # Third scale
+        self.conv3_1 = nn.Conv1d(1, 16, kernel_size=7, padding=3)
+        self.bn3_1 = nn.BatchNorm1d(16)
+        self.conv3_2 = nn.Conv1d(16, 32, kernel_size=7, padding=3)
+        self.bn3_2 = nn.BatchNorm1d(32)
+        self.conv3_3 = nn.Conv1d(32, 64, kernel_size=7, padding=3)
+        self.bn3_3 = nn.BatchNorm1d(64)
+        self.shortcut3 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
+
+        # Layer normalization
+        self.norm1 = nn.LayerNorm(192)  # Adjusted for increased channels
+
+        # GRU layer
+        self.gru = nn.LSTM(
+            input_size=192, hidden_size=512, num_layers=3, batch_first=True, bidirectional=True
+        )
+
+        # Fully connected layers
+        self.fc1 = nn.Linear(512 * 2, 64)
+        self.fc2 = nn.Linear(64, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for the GPTMultiScaleConvGRUModel.
+
+        :param x: Input tensor of shape [batch_size, seq_length].
+        :return: Output tensor of shape [batch_size, seq_length].
+        """
+        x = x.unsqueeze(1)
+
+        # First scale with skip connection
+        x1 = F.relu(self.bn1_1(self.conv1_1(x)))
+        x1 = F.relu(self.bn1_2(self.conv1_2(x1)))
+        x1 = F.relu(self.bn1_3(self.conv1_3(x1) + self.shortcut1(x)))  # Skip connection
+        x1 = F.adaptive_max_pool1d(x1, output_size=x.size(-1))
+
+        # Second scale with skip connection
+        x2 = F.relu(self.bn2_1(self.conv2_1(x)))
+        x2 = F.relu(self.bn2_2(self.conv2_2(x2)))
+        x2 = F.relu(self.bn2_3(self.conv2_3(x2) + self.shortcut2(x)))  # Skip connection
+        x2 = F.adaptive_max_pool1d(x2, output_size=x.size(-1))
+
+        # Third scale with skip connection
+        x3 = F.relu(self.bn3_1(self.conv3_1(x)))
+        x3 = F.relu(self.bn3_2(self.conv3_2(x3)))
+        x3 = F.relu(self.bn3_3(self.conv3_3(x3) + self.shortcut3(x)))  # Skip connection
+        x3 = F.adaptive_max_pool1d(x3, output_size=x.size(-1))
+
+        # Concatenate features from all scales
+        x = torch.cat((x1, x2, x3), dim=1)  # Shape: [batch_size, 192, seq_length]
+
+        # Layer normalization
+        x = x.transpose(1, 2)  # Shape: [batch_size, seq_length, 192]
+        x = self.norm1(x)
+
+        # GRU
+        x, _ = self.gru(x)  # Output shape: [batch_size, seq_length, 256]
+
+        # Fully connected layers
+        x = F.relu(self.fc1(x))  # Shape: [batch_size, seq_length, 64]
+        x = self.fc2(x)  # Shape: [batch_size, seq_length, 1]
+        # x = torch.sigmoid(x)
+
+        return x.squeeze(-1)  # Output shape: [batch_size, seq_length]
+
+
 class GRUModel(nn.Module):
     def __init__(
         self,
@@ -465,3 +556,60 @@ class UNet1D(nn.Module):
         output = logits.squeeze(1)
 
         return output
+
+
+class TestModel(nn.Module):
+    def __init__(self):
+        super(TestModel, self).__init__()
+
+        # Convolutional Layers
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=32, kernel_size=3, padding="same")
+        self.conv2 = nn.Conv1d(in_channels=32, out_channels=64, kernel_size=3, padding="same")
+        self.conv3 = nn.Conv1d(in_channels=64, out_channels=128, kernel_size=3, padding="same")
+
+        # Activation function
+        self.relu = nn.ReLU()
+
+        # Dropout Layers
+        self.dropout1 = nn.Dropout(0.3)
+        self.dropout2 = nn.Dropout(0.5)
+
+        # LSTM Layers
+        self.lstm1 = nn.LSTM(
+            input_size=128, hidden_size=512, num_layers=1, batch_first=True, bidirectional=True
+        )
+        self.lstm2 = nn.LSTM(
+            input_size=1024, hidden_size=512, num_layers=1, batch_first=True, bidirectional=True
+        )
+
+        # Dense Layer (equivalent to Keras Dense(1, activation='sigmoid'))
+        self.fc = nn.Linear(1024, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # Input shape: (batch_size, WIN_SIZE, 1) -> Transpose to match Conv1d: (batch_size, 1, WIN_SIZE)
+        x = x.unsqueeze(1)
+
+        # Convolutional Layers
+        x = self.relu(self.conv1(x))  # (batch_size, 32, WIN_SIZE)
+        x = self.dropout1(x)
+
+        x = self.relu(self.conv2(x))  # (batch_size, 64, WIN_SIZE)
+        x = self.dropout1(x)
+
+        x = self.relu(self.conv3(x))  # (batch_size, 128, WIN_SIZE)
+        x = self.dropout1(x)
+
+        # Transpose for LSTM: (batch_size, WIN_SIZE, features)
+        x = x.transpose(1, 2)
+
+        # LSTM Layers
+        x, _ = self.lstm1(x)  # (batch_size, WIN_SIZE, 1024)
+        x = self.dropout2(x)
+        x, _ = self.lstm2(x)  # (batch_size, WIN_SIZE, 1024)
+        x = self.dropout2(x)
+
+        # Dense Layer for each time step
+        x = self.fc(x)  # (batch_size, WIN_SIZE, 1)
+
+        return x.squeeze(-1)  # (batch_size, WIN_SIZE)

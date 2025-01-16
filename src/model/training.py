@@ -30,6 +30,22 @@ class DiceLoss1D(nn.Module):
         return dice_loss
 
 
+class CombinedDiceBCELoss(nn.Module):
+    def __init__(self, dice_weight=0.2):
+        super(CombinedDiceBCELoss, self).__init__()
+        self.dice_weight = dice_weight
+        self.bce_weight = 1 - dice_weight
+        self.bce_loss = nn.BCEWithLogitsLoss()
+        self.dice_loss = DiceLoss1D()
+
+    def forward(self, preds, targets):
+        bce_loss = self.bce_loss(preds, targets)
+        dice_loss = self.dice_loss(preds, targets)
+        combined_loss = self.bce_weight * bce_loss + self.dice_weight * dice_loss
+
+        return combined_loss
+
+
 def train(
     model: nn.Module,
     train_loader: DataLoader,
@@ -212,7 +228,7 @@ def train_model(
 
     # pos_weight = torch.tensor([3.7]).to(device)
     # criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    criterion = DiceLoss1D()
+    criterion = CombinedDiceBCELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     for epoch in range(wandb.config.epochs):
