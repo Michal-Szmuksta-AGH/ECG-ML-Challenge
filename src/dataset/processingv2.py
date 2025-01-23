@@ -324,78 +324,22 @@ def process_dataset_v2(test_size: float, val_size: float, verbosity: str) -> Non
     npz_files = [f for f in os.listdir(interim_data_dir) if f.endswith(".npz")]
 
     # Get the statistics of AFIB labels in each file
-    afib_percentage, afib_samples, non_afib_samples = get_samples_statistics(
-        interim_data_dir, npz_files
+    afib_samples, non_afib_samples = get_samples_statistics(interim_data_dir, npz_files)
+    record_statistics = get_record_statistics(npz_files, afib_samples, non_afib_samples)
+
+    # Split the dataset into training, validation, and test sets
+    train_size = 1 - test_size - val_size
+    train_records, test_records, val_records, statistics = greedy_record_split(
+        record_statistics, train_size, test_size, val_size
     )
 
-    # Categorize percentage of AFIB samples
-    bins = np.linspace(0, 1, 11)
-    npz_files_categories = np.digitize(afib_percentage, bins=bins)
+    # Log the statistics of the datasets
+    log_datasets_stats(statistics)
 
-    # Split into train, validation, and test sets
-    logger.info("Splitting the dataset into training, validation, and test sets...")
-    train_test_split_train_size = 1 - test_size - val_size
-    (
-        train_files,
-        test_files,
-        train_categories,
-        test_categories,
-        train_afib,
-        test_afib,
-        train_non_afib,
-        test_non_afib,
-    ) = train_test_split(
-        npz_files,
-        npz_files_categories,
-        afib_samples,
-        non_afib_samples,
-        train_size=train_test_split_train_size,
-        stratify=npz_files_categories,
-        random_state=42,
+    # Put the chunk files into the respective directories
+    train_files, test_files, val_files = assign_files_to_datasets(
+        npz_files, train_records, test_records, val_records
     )
-    train_test_split_val_size = val_size / (test_size + val_size)
-    if train_test_split_val_size < 1:
-        (
-            val_files,
-            test_files,
-            val_categories,
-            test_categories,
-            val_afib,
-            test_afib,
-            val_non_afib,
-            test_non_afib,
-        ) = train_test_split(
-            test_files,
-            test_categories,
-            test_afib,
-            test_non_afib,
-            train_size=train_test_split_val_size,
-            stratify=test_categories,
-            random_state=42,
-        )
-    else:
-        val_files = test_files
-        test_files = []
-        val_categories = test_categories
-        test_categories = []
-        val_afib = test_afib
-        test_afib = []
-        val_non_afib = test_non_afib
-        test_non_afib = []
-
-    # Log the percentage of AFIB samples in each set
-    if train_files:
-        log_dataset_statistics(
-            "Training set", bins, train_files, train_categories, train_afib, train_non_afib
-        )
-    if val_files:
-        log_dataset_statistics(
-            "Validation set", bins, val_files, val_categories, val_afib, val_non_afib
-        )
-    if test_files:
-        log_dataset_statistics(
-            "Test set", bins, test_files, test_categories, test_afib, test_non_afib
-        )
 
     # Copy the files to the respective directories
     logger.info("Copying files to the respective directories...")
@@ -420,26 +364,229 @@ def process_dataset_v2(test_size: float, val_size: float, verbosity: str) -> Non
 
 
 def get_samples_statistics(dir, files):
-    afib_percentage = []
     afib_samples = []
     non_afib_samples = []
-    for npz_file in files:
+
+    for npz_file in tqdm(files, desc="Calculating samples statistics"):
         data = np.load(os.path.join(dir, npz_file))
         labels = data["y"]
         sum = np.sum(labels)
         length = len(labels)
-        afib_percentage.append(sum / length)
         afib_samples.append(sum)
         non_afib_samples.append(length - sum)
 
-    return afib_percentage, afib_samples, non_afib_samples
+    return afib_samples, non_afib_samples
 
 
-def log_dataset_statistics(set_name, bins, files, categories, afib_samples, non_afib_samples):
-    logger.info(
-        f"{set_name}: {len(files)} files, {sum(afib_samples)} AFIB samples, {sum(non_afib_samples)} non-AFIB samples, "
-        f"{sum(afib_samples) / (sum(afib_samples) + sum(non_afib_samples)) * 100:.2f}% AFIB"
+def get_record_statistics(npz_files, afib_samples, non_afib_samples):
+    record_stats = {}
+
+    for file, afib, non_afib in tqdm(
+        zip(npz_files, afib_samples, non_afib_samples), desc="Calculating record statistics"
+    ):
+        prefix = "#".join(file.split("#")[:2])
+        if prefix not in record_stats:
+            record_stats[prefix] = {"length": 0, "afib_samples": 0, "non_afib_samples": 0}
+
+        record_stats[prefix]["length"] += 1
+        record_stats[prefix]["afib_samples"] += afib
+        record_stats[prefix]["non_afib_samples"] += non_afib
+
+    return record_stats
+
+
+def greedy_record_split(record_statistics, train_size, test_size, val_size):
+    def proportion_loss(curr_train_size, curr_test_size, curr_val_size):
+        curr_total = curr_train_size + curr_test_size + curr_val_size
+        curr_train_prop = curr_train_size / curr_total
+        curr_test_prop = curr_test_size / curr_total
+        curr_val_prop = curr_val_size / curr_total
+
+        train_prop_loss = (curr_train_prop - train_size) ** 2
+        test_prop_loss = (curr_test_prop - test_size) ** 2
+        val_prop_loss = (curr_val_prop - val_size) ** 2
+
+        return train_prop_loss + test_prop_loss + val_prop_loss
+
+    def distribution_loss(
+        curr_train_afib_samples,
+        curr_train_non_afib_samples,
+        curr_test_afib_samples,
+        curr_test_non_afib_samples,
+        curr_val_afib_samples,
+        curr_val_non_afib_samples,
+    ):
+        curr_train_total = curr_train_afib_samples + curr_train_non_afib_samples
+        curr_test_total = curr_test_afib_samples + curr_test_non_afib_samples
+        curr_val_total = curr_val_afib_samples + curr_val_non_afib_samples
+
+        curr_train_afib_prop = (
+            curr_train_afib_samples / curr_train_total if curr_train_total != 0 else 0
+        )
+        curr_test_afib_prop = (
+            curr_test_afib_samples / curr_test_total if curr_test_total != 0 else 0
+        )
+        curr_val_afib_prop = curr_val_afib_samples / curr_val_total if curr_val_total != 0 else 0
+
+        afib_distribution_loss = (
+            (curr_train_afib_prop - curr_test_afib_prop) ** 2
+            + (curr_train_afib_prop - curr_val_afib_prop) ** 2
+            + (curr_test_afib_prop - curr_val_afib_prop) ** 2
+        )
+
+        return afib_distribution_loss
+
+    def loss(
+        curr_train_size,
+        curr_test_size,
+        curr_val_size,
+        curr_train_afib_samples,
+        curr_train_non_afib_samples,
+        curr_test_afib_samples,
+        curr_test_non_afib_samples,
+        curr_val_afib_samples,
+        curr_val_non_afib_samples,
+    ):
+        return 0.5 * proportion_loss(
+            curr_train_size, curr_test_size, curr_val_size
+        ) + 0.5 * distribution_loss(
+            curr_train_afib_samples,
+            curr_train_non_afib_samples,
+            curr_test_afib_samples,
+            curr_test_non_afib_samples,
+            curr_val_afib_samples,
+            curr_val_non_afib_samples,
+        )
+
+    train_prefixes = []
+    test_prefixes = []
+    val_prefixes = []
+    curr_train_size = curr_test_size = curr_val_size = 0
+    curr_train_afib_samples = curr_train_non_afib_samples = 0
+    curr_test_afib_samples = curr_test_non_afib_samples = 0
+    curr_val_afib_samples = curr_val_non_afib_samples = 0
+
+    prefix_iterator = tqdm(record_statistics.items(), desc="Splitting records")
+    for prefix, stats in prefix_iterator:
+        prefix_length = stats["length"]
+        prefix_afib_samples = stats["afib_samples"]
+        prefix_non_afib_samples = stats["non_afib_samples"]
+
+        if train_size == 0:
+            train_loss = float("inf")
+        else:
+            train_loss = loss(
+                curr_train_size + prefix_length,
+                curr_test_size,
+                curr_val_size,
+                curr_train_afib_samples + prefix_afib_samples,
+                curr_train_non_afib_samples + prefix_non_afib_samples,
+                curr_test_afib_samples,
+                curr_test_non_afib_samples,
+                curr_val_afib_samples,
+                curr_val_non_afib_samples,
+            )
+
+        if test_size == 0:
+            test_loss = float("inf")
+        else:
+            test_loss = loss(
+                curr_train_size,
+                curr_test_size + prefix_length,
+                curr_val_size,
+                curr_train_afib_samples,
+                curr_train_non_afib_samples,
+                curr_test_afib_samples + prefix_afib_samples,
+                curr_test_non_afib_samples + prefix_non_afib_samples,
+                curr_val_afib_samples,
+                curr_val_non_afib_samples,
+            )
+
+        if val_size == 0:
+            val_loss = float("inf")
+        else:
+            val_loss = loss(
+                curr_train_size,
+                curr_test_size,
+                curr_val_size + prefix_length,
+                curr_train_afib_samples,
+                curr_train_non_afib_samples,
+                curr_test_afib_samples,
+                curr_test_non_afib_samples,
+                curr_val_afib_samples + prefix_afib_samples,
+                curr_val_non_afib_samples + prefix_non_afib_samples,
+            )
+
+        if train_loss <= test_loss and train_loss <= val_loss:
+            train_prefixes.append(prefix)
+            curr_train_size += prefix_length
+            curr_train_afib_samples += prefix_afib_samples
+            curr_train_non_afib_samples += prefix_non_afib_samples
+        elif test_loss <= train_loss and test_loss <= val_loss:
+            test_prefixes.append(prefix)
+            curr_test_size += prefix_length
+            curr_test_afib_samples += prefix_afib_samples
+            curr_test_non_afib_samples += prefix_non_afib_samples
+        elif val_loss <= train_loss and val_loss <= test_loss:
+            val_prefixes.append(prefix)
+            curr_val_size += prefix_length
+            curr_val_afib_samples += prefix_afib_samples
+            curr_val_non_afib_samples += prefix_non_afib_samples
+
+    stats = {
+        "train_size": curr_train_size,
+        "test_size": curr_test_size,
+        "val_size": curr_val_size,
+        "train_afib_samples": curr_train_afib_samples,
+        "train_non_afib_samples": curr_train_non_afib_samples,
+        "test_afib_samples": curr_test_afib_samples,
+        "test_non_afib_samples": curr_test_non_afib_samples,
+        "val_afib_samples": curr_val_afib_samples,
+        "val_non_afib_samples": curr_val_non_afib_samples,
+    }
+
+    return train_prefixes, test_prefixes, val_prefixes, stats
+
+
+def log_datasets_stats(stats):
+    train_all_samples = stats["train_afib_samples"] + stats["train_non_afib_samples"]
+    train_afib_prop = (
+        stats["train_afib_samples"] / train_all_samples if train_all_samples != 0 else 0
     )
-    for i in range(1, len(bins)):
-        count = sum(categories == i)
-        logger.info(f"{set_name}: {bins[i-1]:.2f}, {bins[i]:.2f} -> {count} files")
+    test_all_samples = stats["test_afib_samples"] + stats["test_non_afib_samples"]
+    test_afib_prop = stats["test_afib_samples"] / test_all_samples if test_all_samples != 0 else 0
+    val_all_samples = stats["val_afib_samples"] + stats["val_non_afib_samples"]
+    val_afib_prop = stats["val_afib_samples"] / val_all_samples if val_all_samples != 0 else 0
+
+    total_size = stats["train_size"] + stats["test_size"] + stats["val_size"]
+    train_prop = stats["train_size"] / total_size if total_size != 0 else 0
+    test_prop = stats["test_size"] / total_size if total_size != 0 else 0
+    val_prop = stats["val_size"] / total_size if total_size != 0 else 0
+
+    logger.info(f"Training set AFIB proportion: {train_afib_prop:.2f}")
+    logger.info(f"Test set AFIB proportion: {test_afib_prop:.2f}")
+    logger.info(f"Validation set AFIB proportion: {val_afib_prop:.2f}")
+
+    logger.info(f"Training set proportion: {train_prop:.2f}")
+    logger.info(f"Test set proportion: {test_prop:.2f}")
+    logger.info(f"Validation set proportion: {val_prop:.2f}")
+
+
+def assign_files_to_datasets(npz_files, train_records, test_records, val_records):
+    train_files = []
+    test_files = []
+    val_files = []
+
+    npz_iterator = tqdm(npz_files, desc="Assigning files to datasets")
+    for file in npz_iterator:
+        prefix = "#".join(file.split("#")[:2])
+        if prefix in train_records:
+            train_files.append(file)
+        elif prefix in test_records:
+            test_files.append(file)
+        elif prefix in val_records:
+            val_files.append(file)
+        else:
+            raise ValueError(f"File {file} does not belong to any dataset")
+
+    return train_files, test_files, val_files
