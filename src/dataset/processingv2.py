@@ -231,7 +231,9 @@ def correct_qrs_locs(signal, channel, qrs_locs, fs):
 
 
 def calculate_rr(qrs_locs, fs):
-    rr_intervals = wfdb.processing.calc_rr(qrs_locs, fs)
+    rr_intervals = wfdb.processing.calc_rr(
+        qrs_locs, fs=fs, min_rr=None, max_rr=None, qrs_units="samples", rr_units="seconds"
+    )
     return rr_intervals
 
 

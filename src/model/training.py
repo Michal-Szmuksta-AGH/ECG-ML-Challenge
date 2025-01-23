@@ -227,7 +227,7 @@ def train_model(
 
     # pos_weight = torch.tensor([3.7]).to(device)
     # criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    criterion = CombinedDiceBCELoss()
+    criterion = CombinedDiceBCELoss(dice_weight=0.5)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     for epoch in range(wandb.config.epochs):

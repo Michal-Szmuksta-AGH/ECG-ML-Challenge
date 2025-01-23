@@ -659,18 +659,18 @@ class GPTMultiScaleConvLSTMModelv2(nn.Module):
 
 
 class ConvolutionalBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, activation_fn=nn.ReLU()):
         super(ConvolutionalBlock, self).__init__()
         self.conv = nn.Conv1d(
             in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1
         )
         self.bn = nn.BatchNorm1d(out_channels)
-        self.relu = nn.ReLU()
+        self.activation_fn = activation_fn
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv(x)
         x = self.bn(x)
-        x = self.relu(x)
+        x = self.activation_fn(x)
 
         return x
 
@@ -731,7 +731,7 @@ class BestUNet(nn.Module):
         self.residual8 = ResidualBlock(depth * 4, depth * 2)
         self.upsample4 = UpsampleBlock(depth * 2, depth)
         self.residual9 = ResidualBlock(depth * 2, depth)
-        self.convblock = ConvolutionalBlock(depth, 1)
+        self.convblock = ConvolutionalBlock(depth, 1, activation_fn=nn.Identity())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.unsqueeze(1)
@@ -754,5 +754,84 @@ class BestUNet(nn.Module):
         x = self.residual9(torch.cat((x, rs1), dim=1))
         x = self.convblock(x)
         x = x.squeeze(1)
+
+        return x
+
+
+class TestModel(nn.Module):
+    def __init__(self):
+        super(TestModel, self).__init__()
+        self.conv1 = nn.Conv1d(1, 32, kernel_size=3, padding=1)
+        self.dropout1 = nn.Dropout(p=0.3)
+        self.conv2 = nn.Conv1d(32, 64, kernel_size=3, padding=1)
+        self.dropout2 = nn.Dropout(p=0.3)
+        self.conv3 = nn.Conv1d(64, 128, kernel_size=3, padding=1)
+        self.dropout3 = nn.Dropout(p=0.3)
+        self.LSTM = nn.LSTM(128, 512, batch_first=True, bidirectional=True)
+        self.LSTM2 = nn.LSTM(1024, 512, batch_first=True, bidirectional=True)
+        self.dropout4 = nn.Dropout(p=0.5)
+        self.dense1 = nn.Linear(1024, 32)
+
+    def forward(self, x):
+        x = x.unsqueeze(1)
+        x = F.relu(self.conv1(x))
+        x = self.dropout1(x)
+        x = F.relu(self.conv2(x))
+        x = self.dropout2(x)
+        x = F.relu(self.conv3(x))
+        x = self.dropout3(x)
+        x = x.permute(0, 2, 1)
+        x, _ = self.LSTM(x)
+        x, _ = self.LSTM2(x)
+        x = self.dropout4(x)
+        x = x[:, -1, :]
+        x = self.dense1(x)
+        return x
+
+
+class ConvBlock(nn.Module):
+    def __init__(self, kernel_size):
+        super(ConvBlock, self).__init__()
+        self.conv1 = nn.Conv1d(1, 16, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.dropout1 = nn.Dropout(p=0.1)
+        self.conv2 = nn.Conv1d(16, 32, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.dropout2 = nn.Dropout(p=0.1)
+        self.conv3 = nn.Conv1d(32, 64, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.dropout3 = nn.Dropout(p=0.1)
+        self.conv4 = nn.Conv1d(64, 128, kernel_size=kernel_size, padding=kernel_size // 2)
+
+    def forward(self, x):
+        x = F.leaky_relu(self.conv1(x))
+        x = self.dropout1(x)
+        x = F.leaky_relu(self.conv2(x))
+        x = self.dropout2(x)
+        x = F.leaky_relu(self.conv3(x))
+        x = self.dropout3(x)
+        x = F.leaky_relu(self.conv4(x))
+
+        return x
+
+
+class LastChance(nn.Module):
+    def __init__(self):
+        super(LastChance, self).__init__()
+        self.skipconv = nn.Conv1d(1, 128, kernel_size=1)
+        self.convblock1 = ConvBlock(3)
+        self.convblock2 = ConvBlock(5)
+        self.LSTM = nn.LSTM(128 * 3, 256, num_layers=2, batch_first=True, bidirectional=True)
+        self.dropout = nn.Dropout(p=0.1)
+        self.dense = nn.Linear(512, 32)
+
+    def forward(self, x):
+        x = x.unsqueeze(1)
+        skip = self.skipconv(x)
+        x1 = self.convblock1(x)
+        x2 = self.convblock2(x)
+        x = torch.cat([skip, x1, x2], dim=1)
+        x = x.permute(0, 2, 1)
+        x, _ = self.LSTM(x)
+        x = self.dropout(x)
+        x = x[:, -1, :]
+        x = self.dense(x)
 
         return x
