@@ -5,117 +5,71 @@ import torch.nn.functional as F
 import numpy as np
 import wfdb
 from wfdb import processing
-from sklearn.preprocessing import MinMaxScaler
 
 from signal_reader import SignalReader
 from config import TRAINED_CHUNK_SIZE, TRAINED_FS, MODEL_FILE
 
 
-class MultiScaleConvLSTMModelv2(nn.Module):
-    def __init__(self) -> None:
-        """
-        Initialize the GPTMultiScaleConvGRUModel.
-        """
-        super(MultiScaleConvLSTMModelv2, self).__init__()
+class ConvBlock(nn.Module):
+    def __init__(self, kernel_size):
+        super(ConvBlock, self).__init__()
+        self.conv1 = nn.Conv1d(1, 16, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.dropout1 = nn.Dropout(p=0.4)
+        self.conv2 = nn.Conv1d(16, 32, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.dropout2 = nn.Dropout(p=0.4)
+        self.conv3 = nn.Conv1d(32, 64, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.dropout3 = nn.Dropout(p=0.4)
+        self.conv4 = nn.Conv1d(64, 128, kernel_size=kernel_size, padding=kernel_size // 2)
 
-        # First scale
-        self.conv1_1 = nn.Conv1d(1, 16, kernel_size=3, padding=1)
-        self.bn1_1 = nn.BatchNorm1d(16)
-        self.conv1_2 = nn.Conv1d(16, 32, kernel_size=3, padding=1)
-        self.bn1_2 = nn.BatchNorm1d(32)
-        self.conv1_3 = nn.Conv1d(32, 64, kernel_size=3, padding=1)
-        self.bn1_3 = nn.BatchNorm1d(64)
-        self.shortcut1 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
-        self.dropout1 = nn.Dropout(p=0.3)
+    def forward(self, x):
+        x = F.leaky_relu(self.conv1(x))
+        x = self.dropout1(x)
+        x = F.leaky_relu(self.conv2(x))
+        x = self.dropout2(x)
+        x = F.leaky_relu(self.conv3(x))
+        x = self.dropout3(x)
+        x = F.leaky_relu(self.conv4(x))
 
-        # Second scale
-        self.conv2_1 = nn.Conv1d(1, 16, kernel_size=5, padding=2)
-        self.bn2_1 = nn.BatchNorm1d(16)
-        self.conv2_2 = nn.Conv1d(16, 32, kernel_size=5, padding=2)
-        self.bn2_2 = nn.BatchNorm1d(32)
-        self.conv2_3 = nn.Conv1d(32, 64, kernel_size=5, padding=2)
-        self.bn2_3 = nn.BatchNorm1d(64)
-        self.shortcut2 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
-        self.dropout2 = nn.Dropout(p=0.3)
+        return x
 
-        # Third scale
-        self.conv3_1 = nn.Conv1d(1, 16, kernel_size=7, padding=3)
-        self.bn3_1 = nn.BatchNorm1d(16)
-        self.conv3_2 = nn.Conv1d(16, 32, kernel_size=7, padding=3)
-        self.bn3_2 = nn.BatchNorm1d(32)
-        self.conv3_3 = nn.Conv1d(32, 64, kernel_size=7, padding=3)
-        self.bn3_3 = nn.BatchNorm1d(64)
-        self.shortcut3 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
-        self.dropout3 = nn.Dropout(p=0.3)
 
-        # Layer normalization
-        self.norm1 = nn.LayerNorm(192)  # Adjusted for increased channels
+class LastChance(nn.Module):
+    def __init__(self):
+        super(LastChance, self).__init__()
+        self.skipconv = nn.Conv1d(1, 128, kernel_size=1)
+        self.skip_dropout = nn.Dropout(p=0.4)
+        self.convblock1 = ConvBlock(5)
+        self.convblock2 = ConvBlock(7)
+        self.convblock3 = ConvBlock(9)
+        self.LSTM = nn.LSTM(128 * 4, 256, num_layers=4, batch_first=True, bidirectional=True)
+        self.dropout1 = nn.Dropout(p=0.4)
+        self.dropout2 = nn.Dropout(p=0.4)
+        self.dense1 = nn.Linear(512, 256)
+        self.dense2 = nn.Linear(256, 32)
 
-        # GRU layer
-        self.gru = nn.LSTM(
-            input_size=192, hidden_size=512, num_layers=3, batch_first=True, bidirectional=True
-        )
-        self.dropout_gru = nn.Dropout(p=0.4)
-
-        # Fully connected layers
-        self.fc1 = nn.Linear(512 * 2, 64)
-        self.dropout_fc = nn.Dropout(p=0.5)
-        self.fc2 = nn.Linear(64, 1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass for the MultiScaleConvGRUModel.
-
-        :param x: Input tensor of shape [batch_size, seq_length].
-        :return: Output tensor of shape [batch_size, seq_length].
-        """
+    def forward(self, x):
+        x = x.unsqueeze(1)
+        skip = F.leaky_relu(self.skipconv(x))
+        skip = self.skip_dropout(skip)
+        x1 = self.convblock1(x)
+        x2 = self.convblock2(x)
+        x3 = self.convblock3(x)
+        x = torch.cat([skip, x1, x2, x3], dim=1)
         x = x.permute(0, 2, 1)
+        x, _ = self.LSTM(x)
+        x = self.dropout1(x)
+        x = x[:, -1, :]
+        x = self.dense1(x)
+        x = self.dropout2(x)
+        x = self.dense2(x)
 
-        # First scale with skip connection
-        x1 = F.relu(self.bn1_1(self.conv1_1(x)))
-        x1 = F.relu(self.bn1_2(self.conv1_2(x1)))
-        x1 = F.relu(self.bn1_3(self.conv1_3(x1) + self.shortcut1(x)))  # Skip connection
-        x1 = self.dropout1(x1)
-        x1 = F.adaptive_max_pool1d(x1, output_size=x.size(-1))
-
-        # Second scale with skip connection
-        x2 = F.relu(self.bn2_1(self.conv2_1(x)))
-        x2 = F.relu(self.bn2_2(self.conv2_2(x2)))
-        x2 = F.relu(self.bn2_3(self.conv2_3(x2) + self.shortcut2(x)))  # Skip connection
-        x2 = self.dropout2(x2)
-        x2 = F.adaptive_max_pool1d(x2, output_size=x.size(-1))
-
-        # Third scale with skip connection
-        x3 = F.relu(self.bn3_1(self.conv3_1(x)))
-        x3 = F.relu(self.bn3_2(self.conv3_2(x3)))
-        x3 = F.relu(self.bn3_3(self.conv3_3(x3) + self.shortcut3(x)))  # Skip connection
-        x3 = self.dropout3(x3)
-        x3 = F.adaptive_max_pool1d(x3, output_size=x.size(-1))
-
-        # Concatenate features from all scales
-        x = torch.cat((x1, x2, x3), dim=1)  # Shape: [batch_size, 192, seq_length]
-
-        # Layer normalization
-        x = x.transpose(1, 2)  # Shape: [batch_size, seq_length, 192]
-        x = self.norm1(x)
-
-        # GRU
-        x, _ = self.gru(x)  # Output shape: [batch_size, seq_length, 256]
-        x = self.dropout_gru(x)
-
-        # Fully connected layers
-        x = F.relu(self.fc1(x))  # Shape: [batch_size, seq_length, 64]
-        x = self.dropout_fc(x)
-        x = self.fc2(x)  # Shape: [batch_size, seq_length, 1]
-        x = torch.sigmoid(x)
-
-        return x  # Output shape: [batch_size, seq_length, 1]
+        return x
 
 
 class RecordEvaluator:
     def __init__(self, dest_dir):
         self._dest_dir = dest_dir
-        self._model = MultiScaleConvLSTMModelv2()
+        self._model = LastChance()
         state_dict = torch.load(f"./{MODEL_FILE}", weights_only=True, map_location="cpu")
         prefix = "_orig_mod."
         state_dict = {

@@ -573,7 +573,7 @@ class GPTMultiScaleConvLSTMModelv2(nn.Module):
         self.conv1_3 = nn.Conv1d(32, 64, kernel_size=3, padding=1)
         self.bn1_3 = nn.BatchNorm1d(64)
         self.shortcut1 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
-        self.dropout1 = nn.Dropout(p=0.1)
+        self.dropout1 = nn.Dropout(p=0.5)
 
         # Second scale
         self.conv2_1 = nn.Conv1d(1, 16, kernel_size=5, padding=2)
@@ -583,7 +583,7 @@ class GPTMultiScaleConvLSTMModelv2(nn.Module):
         self.conv2_3 = nn.Conv1d(32, 64, kernel_size=5, padding=2)
         self.bn2_3 = nn.BatchNorm1d(64)
         self.shortcut2 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
-        self.dropout2 = nn.Dropout(p=0.1)
+        self.dropout2 = nn.Dropout(p=0.5)
 
         # Third scale
         self.conv3_1 = nn.Conv1d(1, 16, kernel_size=7, padding=3)
@@ -593,7 +593,7 @@ class GPTMultiScaleConvLSTMModelv2(nn.Module):
         self.conv3_3 = nn.Conv1d(32, 64, kernel_size=7, padding=3)
         self.bn3_3 = nn.BatchNorm1d(64)
         self.shortcut3 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
-        self.dropout3 = nn.Dropout(p=0.1)
+        self.dropout3 = nn.Dropout(p=0.5)
 
         # Layer normalization
         self.norm1 = nn.LayerNorm(192)  # Adjusted for increased channels
@@ -602,11 +602,11 @@ class GPTMultiScaleConvLSTMModelv2(nn.Module):
         self.gru = nn.LSTM(
             input_size=192, hidden_size=512, num_layers=3, batch_first=True, bidirectional=True
         )
-        self.dropout_gru = nn.Dropout(p=0.1)
+        self.dropout_gru = nn.Dropout(p=0.5)
 
         # Fully connected layers
         self.fc1 = nn.Linear(512 * 2, 64)
-        self.dropout_fc = nn.Dropout(p=0.1)
+        self.dropout_fc = nn.Dropout(p=0.5)
         self.fc2 = nn.Linear(64, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -793,11 +793,11 @@ class ConvBlock(nn.Module):
     def __init__(self, kernel_size):
         super(ConvBlock, self).__init__()
         self.conv1 = nn.Conv1d(1, 16, kernel_size=kernel_size, padding=kernel_size // 2)
-        self.dropout1 = nn.Dropout(p=0.1)
+        self.dropout1 = nn.Dropout(p=0.4)
         self.conv2 = nn.Conv1d(16, 32, kernel_size=kernel_size, padding=kernel_size // 2)
-        self.dropout2 = nn.Dropout(p=0.1)
+        self.dropout2 = nn.Dropout(p=0.4)
         self.conv3 = nn.Conv1d(32, 64, kernel_size=kernel_size, padding=kernel_size // 2)
-        self.dropout3 = nn.Dropout(p=0.1)
+        self.dropout3 = nn.Dropout(p=0.4)
         self.conv4 = nn.Conv1d(64, 128, kernel_size=kernel_size, padding=kernel_size // 2)
 
     def forward(self, x):
@@ -815,23 +815,46 @@ class ConvBlock(nn.Module):
 class LastChance(nn.Module):
     def __init__(self):
         super(LastChance, self).__init__()
+        self.noise = GaussianNoise(std=0.01) 
         self.skipconv = nn.Conv1d(1, 128, kernel_size=1)
-        self.convblock1 = ConvBlock(3)
-        self.convblock2 = ConvBlock(5)
-        self.LSTM = nn.LSTM(128 * 3, 256, num_layers=2, batch_first=True, bidirectional=True)
-        self.dropout = nn.Dropout(p=0.1)
-        self.dense = nn.Linear(512, 32)
+        self.skip_dropout = nn.Dropout(p=0.4)
+        self.convblock1 = ConvBlock(5)
+        self.convblock2 = ConvBlock(7)
+        self.convblock3 = ConvBlock(9)
+        self.LSTM = nn.LSTM(128 * 4, 256, num_layers=4, batch_first=True, bidirectional=True)
+        self.dropout1 = nn.Dropout(p=0.4)
+        self.dropout2 = nn.Dropout(p=0.4)
+        self.dense1 = nn.Linear(512, 256)
+        self.dense2 = nn.Linear(256, 32)
 
-    def forward(self, x):
+    def forward(self, x, noise=True):
+        if noise:
+            x = self.noise(x)
         x = x.unsqueeze(1)
-        skip = self.skipconv(x)
+        skip = F.leaky_relu(self.skipconv(x))
+        skip = self.skip_dropout(skip)
         x1 = self.convblock1(x)
         x2 = self.convblock2(x)
-        x = torch.cat([skip, x1, x2], dim=1)
+        x3 = self.convblock3(x)
+        x = torch.cat([skip, x1, x2, x3], dim=1)
         x = x.permute(0, 2, 1)
         x, _ = self.LSTM(x)
-        x = self.dropout(x)
+        x = self.dropout1(x)
         x = x[:, -1, :]
-        x = self.dense(x)
+        x = self.dense1(x)
+        x = self.dropout2(x)
+        x = self.dense2(x)
 
+        return x
+    
+class GaussianNoise(nn.Module):
+    def __init__(self, mean=0.0, std=0.01):
+        super(GaussianNoise, self).__init__()
+        self.mean = mean
+        self.std = std
+
+    def forward(self, x):
+        if self.training:
+            noise = torch.randn_like(x) * self.std + self.mean
+            return x + noise
         return x

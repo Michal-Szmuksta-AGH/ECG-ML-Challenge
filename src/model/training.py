@@ -52,6 +52,7 @@ def train(
     criterion: nn.Module,
     optimizer: optim.Optimizer,
     device: torch.device,
+    l1_lambda: float = 2e-6,
 ) -> None:
     """
     Train the model for one epoch.
@@ -70,7 +71,8 @@ def train(
         optimizer.zero_grad()
 
         outputs = model(x)
-        loss = criterion(outputs, y)
+        l1_norm = sum(p.abs().sum() for p in model.parameters())
+        loss = criterion(outputs, y) + l1_lambda * l1_norm
         loss.backward()
         optimizer.step()
 
@@ -111,7 +113,7 @@ def evaluate(
             x, y = batch
             x, y = x.to(device), y.to(device).float()
 
-            outputs = model(x)
+            outputs = model(x, noise=False)
             if calculate_loss:
                 loss = criterion(outputs, y)
                 total_loss += loss.item()
@@ -167,6 +169,9 @@ def save_model_and_report(
     model_filename = f"{model_type}_{timestamp}_{epochs}_{batch_size}_{learning_rate}.pth"
     model_save_path = os.path.join(MODELS_DIR, model_filename)
 
+    if not os.path.exists(MODELS_DIR):
+        os.makedirs(MODELS_DIR)
+
     torch.save(model.state_dict(), model_save_path)
     logger.info(f"Model saved to {model_save_path}")
 
@@ -218,17 +223,23 @@ def train_model(
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
 
+    torch.set_float32_matmul_precision("high")
     model = get_model(model_type)
     if resume_model:
-        model.load_state_dict(torch.load(resume_model))
+        state_dict = torch.load(resume_model, weights_only=False)
+        prefix = "_orig_mod."
+        state_dict = {
+            k[len(prefix) :] if k.startswith(prefix) else k: v for k, v in state_dict.items()
+        }
+        model.load_state_dict(state_dict)
         logger.info(f"Resumed training from model: {resume_model}")
     model = torch.compile(model)
     model = model.to(device)
 
     # pos_weight = torch.tensor([3.7]).to(device)
     # criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    criterion = CombinedDiceBCELoss(dice_weight=0.5)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    criterion = CombinedDiceBCELoss(dice_weight=0.85)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-4)
 
     for epoch in range(wandb.config.epochs):
         logger.info(f"Epoch {epoch + 1}/{epochs}")
@@ -237,5 +248,5 @@ def train_model(
         evaluate(model, train_loader, criterion, device, prefix="Train")
         evaluate(model, val_loader, criterion, device, prefix="Validation")
 
-    save_model_and_report(model, model_type, epochs, batch_size, learning_rate)
+        save_model_and_report(model, model_type, epochs, batch_size, learning_rate)
     wandb.finish()
