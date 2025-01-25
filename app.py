@@ -5,6 +5,7 @@ from typing import Union
 from loguru import logger
 
 import src.dataset.processing as processing
+import src.dataset.processingv2 as processingv2
 import src.model.training as training
 import src.model.evaluate as evaluate
 from src.model.models import get_model
@@ -18,7 +19,7 @@ from src.config import (
     SRC_DIR,
 )
 
-app = typer.Typer()
+app = typer.Typer(pretty_exceptions_enable=False)
 
 
 @app.command()
@@ -56,63 +57,98 @@ def clear_dataset(dataset_name: Union[str, None] = None, data_type: str = "both"
 
 
 @app.command()
-def preprocess_dataset(dataset_name: str, target_fs: int, verbosity: str = "INFO") -> None:
+def preprocess_dataset(
+    dataset_name: str,
+    target_fs: int,
+    chunk_size: int,
+    step: int = 5,
+    verbosity: str = "INFO",
+    version: int = 2,
+) -> None:
     """
     Preprocess the specified WFDB dataset.
 
     :param dataset_name: Name of the dataset.
     :param target_fs: Target sampling frequency.
+    :param chunk_size: Number of samples per chunk.
+    :param step: Step of window step while creating chunks.
     :param verbosity: Verbosity level for logging.
+    :param version: Version of the preprocessing function to use (1 or 2).
     """
-    processing.preprocess_dataset(dataset_name, target_fs, verbosity)
+    if version == 1:
+        processing.preprocess_dataset(dataset_name, target_fs, chunk_size, verbosity)
+    elif version == 2:
+        processingv2.preprocess_dataset_v2(dataset_name, target_fs, chunk_size, step, verbosity)
+    else:
+        raise ValueError("Invalid version specified. Use 1 or 2.")
 
 
 @app.command()
 def process_dataset(
-    chunk_size: int, test_size: float = 0.2, val_size: float = 0.1, verbosity: str = "INFO"
+    test_size: float = 0.2, val_size: float = 0.1, verbosity: str = "INFO", version: int = 2
 ) -> None:
     """
     Process the preprocessed data.
 
-    :param chunk_size: Number of samples per chunk.
     :param test_size: Proportion of the dataset to include in the test split.
     :param val_size: Proportion of the dataset to include in the validation split.
     :param verbosity: Verbosity level for logging.
+    :param version: Version of the processing function to use (1 or 2).
     """
-    processing.process_dataset(chunk_size, test_size, val_size, verbosity)
+    if version == 1:
+        processing.process_dataset(test_size, val_size, verbosity)
+    elif version == 2:
+        processingv2.process_dataset_v2(test_size, val_size, verbosity)
+    else:
+        raise ValueError("Invalid version specified. Use 1 or 2.")
 
 
 @app.command()
 def create_dataset(
     chunk_size: int,
     target_fs: int,
+    include_datasets: str,
+    step: int = 64,
     test_size: float = 0.2,
     val_size: float = 0.1,
     verbosity: str = "INFO",
-    exclude_datasets: Union[str, None] = None,
+    version: int = 2,
 ) -> None:
     """
-    Execute the full pipeline: clear data, preprocess all datasets, and process the data.
+    Execute the full pipeline: clear data, preprocess specified datasets, and process the data.
 
     :param chunk_size: Number of samples per chunk.
     :param target_fs: Target sampling frequency.
+    :param include_datasets: Space-separated list of datasets to include.
+    :param step: Step of window step while creating chunks.
     :param test_size: Proportion of the dataset to include in the test split.
     :param val_size: Proportion of the dataset to include in the validation split.
     :param verbosity: Verbosity level for logging.
-    :param exclude_datasets: Comma-separated list of datasets to exclude.
+    :param version: Version of the processing function to use (1 or 2).
     """
     processing.clear_data(None, "both")
 
-    exclude_list = exclude_datasets.split(",") if exclude_datasets else []
+    include_list = include_datasets.split()
+    for dataset_name in include_list:
+        if not os.path.isdir(os.path.join(RAW_DATA_DIR, dataset_name)):
+            raise ValueError(f"Dataset {dataset_name} does not exist in {RAW_DATA_DIR}")
 
-    for dataset_name in os.listdir(RAW_DATA_DIR):
-        if (
-            os.path.isdir(os.path.join(RAW_DATA_DIR, dataset_name))
-            and dataset_name not in exclude_list
-        ):
-            processing.preprocess_dataset(dataset_name, target_fs, verbosity)
+    for dataset_name in include_list:
+        if version == 1:
+            processing.preprocess_dataset(dataset_name, target_fs, chunk_size, verbosity)
+        elif version == 2:
+            processingv2.preprocess_dataset_v2(
+                dataset_name, target_fs, chunk_size, step, verbosity
+            )
+        else:
+            raise ValueError("Invalid version specified. Use 1 or 2.")
 
-    processing.process_dataset(chunk_size, test_size, val_size, verbosity)
+    if version == 1:
+        processing.process_dataset(test_size, val_size, verbosity)
+    elif version == 2:
+        processingv2.process_dataset_v2(test_size, val_size, verbosity)
+    else:
+        raise ValueError("Invalid version specified. Use 1 or 2.")
 
 
 @app.command()
@@ -217,6 +253,44 @@ def evaluate_model(
     """
     evaluate.evaluate_model(
         model_type, state_dict_name, TEST_DATA_DIR, models_dataset_dir, num_samples
+    )
+
+
+@app.command()
+def evaluate_model_v2(
+    model_type: str,
+    state_dict_name: str,
+    model_chunk_size: int,
+    model_fs: int,
+    database: str,
+    record: str,
+    models_dataset_dir: str = MODELS_DIR,
+    xlim_min: int = None,  # New argument
+    xlim_max: int = None,  # New argument
+) -> None:
+    """
+    Evaluate the trained model on a specified record from the database.
+
+    :param model_type: Type of the model.
+    :param state_dict_name: Name of the state_dict file.
+    :param model_chunk_size: Chunk size used during training.
+    :param model_fs: Sampling frequency used during training.
+    :param models_dataset_dir: Directory of the models dataset.
+    :param database: Name of the database to evaluate.
+    :param record: Name of the record to evaluate.
+    :param xlim_min: Minimum x-axis limit for the plots.
+    :param xlim_max: Maximum x-axis limit for the plots.
+    """
+    evaluate.evaluate_model_v2(
+        model_type,
+        state_dict_name,
+        model_chunk_size,
+        model_fs,
+        models_dataset_dir,
+        database,
+        record,
+        xlim_min,  # Pass new argument
+        xlim_max,  # Pass new argument
     )
 
 

@@ -3,189 +3,162 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-import wfdb.processing
-from sklearn.preprocessing import MinMaxScaler
+import wfdb
+from wfdb import processing
 
 from signal_reader import SignalReader
 from config import TRAINED_CHUNK_SIZE, TRAINED_FS, MODEL_FILE
 
-class GPTMultiScaleConvGRUModel(nn.Module):
-    def __init__(self) -> None:
-        """
-        Initialize the GPTMultiScaleConvGRUModel.
-        """
-        super(GPTMultiScaleConvGRUModel, self).__init__()
 
-        # First scale
-        self.conv1_1 = nn.Conv1d(1, 16, kernel_size=3, padding=1)
-        self.bn1_1 = nn.BatchNorm1d(16)
-        self.conv1_2 = nn.Conv1d(16, 32, kernel_size=3, padding=1)
-        self.bn1_2 = nn.BatchNorm1d(32)
-        self.conv1_3 = nn.Conv1d(32, 64, kernel_size=3, padding=1)
-        self.bn1_3 = nn.BatchNorm1d(64)
-        self.shortcut1 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
+class ConvBlock(nn.Module):
+    def __init__(self, kernel_size):
+        super(ConvBlock, self).__init__()
+        self.conv1 = nn.Conv1d(1, 16, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.dropout1 = nn.Dropout(p=0.4)
+        self.conv2 = nn.Conv1d(16, 32, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.dropout2 = nn.Dropout(p=0.4)
+        self.conv3 = nn.Conv1d(32, 64, kernel_size=kernel_size, padding=kernel_size // 2)
+        self.dropout3 = nn.Dropout(p=0.4)
+        self.conv4 = nn.Conv1d(64, 128, kernel_size=kernel_size, padding=kernel_size // 2)
 
-        # Second scale
-        self.conv2_1 = nn.Conv1d(1, 16, kernel_size=7, padding=3)
-        self.bn2_1 = nn.BatchNorm1d(16)
-        self.conv2_2 = nn.Conv1d(16, 32, kernel_size=7, padding=3)
-        self.bn2_2 = nn.BatchNorm1d(32)
-        self.conv2_3 = nn.Conv1d(32, 64, kernel_size=7, padding=3)
-        self.bn2_3 = nn.BatchNorm1d(64)
-        self.shortcut2 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
+    def forward(self, x):
+        x = F.leaky_relu(self.conv1(x))
+        x = self.dropout1(x)
+        x = F.leaky_relu(self.conv2(x))
+        x = self.dropout2(x)
+        x = F.leaky_relu(self.conv3(x))
+        x = self.dropout3(x)
+        x = F.leaky_relu(self.conv4(x))
 
-        # Third scale
-        self.conv3_1 = nn.Conv1d(1, 16, kernel_size=15, padding=7)
-        self.bn3_1 = nn.BatchNorm1d(16)
-        self.conv3_2 = nn.Conv1d(16, 32, kernel_size=15, padding=7)
-        self.bn3_2 = nn.BatchNorm1d(32)
-        self.conv3_3 = nn.Conv1d(32, 64, kernel_size=15, padding=7)
-        self.bn3_3 = nn.BatchNorm1d(64)
-        self.shortcut3 = nn.Conv1d(1, 64, kernel_size=1, padding=0)
+        return x
 
-        # Layer normalization
-        self.norm1 = nn.LayerNorm(192)  # Adjusted for increased channels
 
-        # GRU layer
-        self.gru = nn.GRU(
-            input_size=192, hidden_size=128, num_layers=3, batch_first=True, bidirectional=True
-        )
+class LastChance(nn.Module):
+    def __init__(self):
+        super(LastChance, self).__init__()
+        self.skipconv = nn.Conv1d(1, 128, kernel_size=1)
+        self.skip_dropout = nn.Dropout(p=0.4)
+        self.convblock1 = ConvBlock(5)
+        self.convblock2 = ConvBlock(7)
+        self.convblock3 = ConvBlock(9)
+        self.LSTM = nn.LSTM(128 * 4, 256, num_layers=4, batch_first=True, bidirectional=True)
+        self.dropout1 = nn.Dropout(p=0.4)
+        self.dropout2 = nn.Dropout(p=0.4)
+        self.dense1 = nn.Linear(512, 256)
+        self.dense2 = nn.Linear(256, 32)
 
-        # Fully connected layers
-        self.fc1 = nn.Linear(128 * 2, 64)
-        self.fc2 = nn.Linear(64, 1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass for the GPTMultiScaleConvGRUModel.
-
-        :param x: Input tensor of shape [batch_size, seq_length].
-        :return: Output tensor of shape [batch_size, seq_length].
-        """
+    def forward(self, x):
         x = x.unsqueeze(1)
+        skip = F.leaky_relu(self.skipconv(x))
+        skip = self.skip_dropout(skip)
+        x1 = self.convblock1(x)
+        x2 = self.convblock2(x)
+        x3 = self.convblock3(x)
+        x = torch.cat([skip, x1, x2, x3], dim=1)
+        x = x.permute(0, 2, 1)
+        x, _ = self.LSTM(x)
+        x = self.dropout1(x)
+        x = x[:, -1, :]
+        x = self.dense1(x)
+        x = self.dropout2(x)
+        x = self.dense2(x)
 
-        # First scale with skip connection
-        x1 = F.relu(self.bn1_1(self.conv1_1(x)))
-        x1 = F.relu(self.bn1_2(self.conv1_2(x1)))
-        x1 = F.relu(self.bn1_3(self.conv1_3(x1) + self.shortcut1(x)))  # Skip connection
-        x1 = F.adaptive_max_pool1d(x1, output_size=x.size(-1))
-
-        # Second scale with skip connection
-        x2 = F.relu(self.bn2_1(self.conv2_1(x)))
-        x2 = F.relu(self.bn2_2(self.conv2_2(x2)))
-        x2 = F.relu(self.bn2_3(self.conv2_3(x2) + self.shortcut2(x)))  # Skip connection
-        x2 = F.adaptive_max_pool1d(x2, output_size=x.size(-1))
-
-        # Third scale with skip connection
-        x3 = F.relu(self.bn3_1(self.conv3_1(x)))
-        x3 = F.relu(self.bn3_2(self.conv3_2(x3)))
-        x3 = F.relu(self.bn3_3(self.conv3_3(x3) + self.shortcut3(x)))  # Skip connection
-        x3 = F.adaptive_max_pool1d(x3, output_size=x.size(-1))
-
-        # Concatenate features from all scales
-        x = torch.cat((x1, x2, x3), dim=1)  # Shape: [batch_size, 192, seq_length]
-
-        # Layer normalization
-        x = x.transpose(1, 2)  # Shape: [batch_size, seq_length, 192]
-        x = self.norm1(x)
-
-        # GRU
-        x, _ = self.gru(x)  # Output shape: [batch_size, seq_length, 256]
-
-        # Fully connected layers
-        x = F.relu(self.fc1(x))  # Shape: [batch_size, seq_length, 64]
-        x = self.fc2(x)  # Shape: [batch_size, seq_length, 1]
-        # x = torch.sigmoid(x)
-
-        return x.squeeze(-1)  # Output shape: [batch_size, seq_length]
+        return x
 
 
 class RecordEvaluator:
     def __init__(self, dest_dir):
         self._dest_dir = dest_dir
-        self._model = GPTMultiScaleConvGRUModel()
+        self._model = LastChance()
         state_dict = torch.load(f"./{MODEL_FILE}", weights_only=True, map_location="cpu")
         prefix = "_orig_mod."
-        state_dict = {k[len(prefix) :] if k.startswith(prefix) else k: v for k, v in state_dict.items()}
+        state_dict = {
+            k[len(prefix) :] if k.startswith(prefix) else k: v for k, v in state_dict.items()
+        }
         self._model.load_state_dict(state_dict)
         self._model.eval()
-        self._scaler = MinMaxScaler(feature_range=(-1, 1))
 
     def evaluate(self, signal_reader):
         signal = signal_reader.read_signal().astype(np.float32)
         fs = signal_reader.read_fs()
         signal = signal.T
-        ch, orig_sig_len = signal.shape
-        
+
         # Resampling
         if fs != TRAINED_FS:
-            resampled_signals = []
-            for i in range(ch):
-                s, _ = wfdb.processing.resample_sig(signal[i, ...], fs, TRAINED_FS)
-                resampled_signals.append(s)
-            signal = np.array(resampled_signals, dtype=np.float32)
-            del resampled_signals
+            signal, _ = wfdb.processing.resample_sig(signal[0, ...], fs, TRAINED_FS)
+            signal = signal.astype(np.float32)
         else:
-            signal = signal
-        
-        # Spliting into chunks
-        _, resampled_sig_len = signal.shape
-        if resampled_sig_len != TRAINED_CHUNK_SIZE:
-            num_chunks = int(np.ceil(resampled_sig_len / TRAINED_CHUNK_SIZE))
-            chunks = []
-            
-            for i in range(num_chunks):
-                start_idx = i * TRAINED_CHUNK_SIZE
-                end_idx = min((i + 1) * TRAINED_CHUNK_SIZE, resampled_sig_len)
-                chunk = signal[:, start_idx:end_idx]
-                
-                # Padding
-                if chunk.shape[1] < TRAINED_CHUNK_SIZE:
-                    padding = np.zeros((ch, TRAINED_CHUNK_SIZE - chunk.shape[1]), dtype=np.float32)
-                    chunk = np.concatenate((chunk, padding), axis=1, dtype=np.float32)
-                chunks.append(chunk)
-        else:
-            chunks = [signal]
-        del signal
+            signal = signal[0, ...]
+            signal = signal.astype(np.float32)
+        fs = TRAINED_FS
 
-        # Model forward pass
-        preds = []
-        for chunk in chunks:
+        # QRS and RR interval detection
+        xqrs = wfdb.processing.XQRS(sig=signal, fs=fs)
+        xqrs.detect()
+        qrs_inds = xqrs.qrs_inds
+        qrs_inds = qrs_inds.astype(np.int32)
+        qrs_inds = processing.correct_peaks(
+            signal, qrs_inds, search_radius=int(0.1 * fs), smooth_window_size=150
+        )
+        rr = wfdb.processing.calc_rr(
+            qrs_inds, fs=fs, min_rr=None, max_rr=None, qrs_units="samples", rr_units="samples"
+        )
 
-            scaled_chunk = np.zeros_like(chunk, dtype=np.float32)
-            for i in range(ch):
-                scaled_chunk[i] = self._scaler.fit_transform(chunk[i].reshape(-1, 1)).ravel()
+        input_rr_samples = TRAINED_CHUNK_SIZE
+        batch_size = 64
+        qrs_af_probabs = np.zeros(shape=(len(qrs_inds),), dtype=np.float32)
+        qrs_af_overlap = np.zeros(shape=(len(qrs_inds),), dtype=np.float32)
 
-            del chunk
-            scaled_chunk = torch.tensor(scaled_chunk, dtype=torch.float32)
+        pred_step = 12
+
+        batch = np.zeros(shape=(batch_size, input_rr_samples, 1), dtype=np.float32)
+        batch_idx = 0
+        rr_indices_history = []
+        for rr_idx in range(0, rr.shape[0] - input_rr_samples, pred_step):
+            snippet = rr[rr_idx : rr_idx + input_rr_samples]
+            rr_indices_history.append([rr_idx, rr_idx + input_rr_samples])
+            snippet = snippet[..., np.newaxis]
+            batch[batch_idx] = snippet
+            batch_idx += 1
+
+            if batch_idx == batch_size:
+                with torch.no_grad():
+                    results = self._model(torch.from_numpy(batch).float()).numpy()
+                for j in range(batch_idx):
+                    rr_from, rr_to = rr_indices_history[j]
+                    qrs_af_probabs[rr_from:rr_to] += results[j, :, 0]
+                    qrs_af_overlap[rr_from:rr_to] += 1.0
+
+                batch_idx = 0
+                rr_indices_history = []
+
+        if batch_idx > 0:
             with torch.no_grad():
-                pred = self._model(scaled_chunk)
-                pred = torch.sigmoid(pred).numpy()
-                preds.append(pred)
+                results = self._model(torch.from_numpy(batch).float()).numpy()
+            for j in range(batch_idx):
+                rr_from, rr_to = rr_indices_history[j]
+                qrs_af_probabs[rr_from:rr_to] += results[j, :, 0]
+                qrs_af_overlap[rr_from:rr_to] += 1.0
 
-        preds = np.concatenate(preds, axis=1, dtype=np.float32)[:resampled_sig_len]
-        
-        # Resampling back to original fs
-        if fs != TRAINED_FS:
-            final_signal = []
-            t_fs = int((orig_sig_len / preds.shape[1]) * TRAINED_FS + 1)
-            for i in range(ch):
-                s, _ = wfdb.processing.resample_sig(preds[i, ...], TRAINED_FS, t_fs)
-                final_signal.append(s)
-            preds = np.array(final_signal)
-            del final_signal
-        else:
-            preds = preds
+        qrs_af_overlap[qrs_af_overlap == 0.0] = 1.0
+        qrs_af_probabs /= qrs_af_overlap
+        qrs_af_preds = np.round(qrs_af_probabs)
 
-        preds = np.mean(preds, axis=0, dtype=np.float32)
-        preds = preds > 0.5
-        preds = preds[:orig_sig_len]
+        pred = np.zeros(
+            [
+                len(signal),
+            ],
+            dtype=np.float32,
+        )
+
+        for qrs_idx in range(len(rr)):
+            pred[qrs_inds[qrs_idx] : qrs_inds[qrs_idx + 1]] = qrs_af_preds[qrs_idx]
 
         code = signal_reader.get_code()
-        np.save(os.path.join(self._dest_dir, f"{code}"), preds)
+        np.save(os.path.join(self._dest_dir, f"{code}"), pred)
 
 
 if __name__ == "__main__":
-    record_eval = RecordEvaluator('./')
+    record_eval = RecordEvaluator("./")
     signal_reader = SignalReader("./val_db/6.csv")
     record_eval.evaluate(signal_reader)

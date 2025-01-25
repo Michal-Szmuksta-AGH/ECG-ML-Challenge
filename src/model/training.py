@@ -16,12 +16,43 @@ from src.dataset.dataloaders import ECGDataset
 from src.model.models import get_model
 
 
+class DiceLoss1D(nn.Module):
+    def __init__(self, smooth=1e-6):
+        super(DiceLoss1D, self).__init__()
+        self.smooth = smooth
+
+    def forward(self, preds, targets):
+        preds = torch.sigmoid(preds)
+        intersection = torch.sum(targets * preds)
+        union = torch.sum(targets) + torch.sum(preds)
+        dice_loss = 1 - (2 * intersection + self.smooth) / (union + self.smooth)
+
+        return dice_loss
+
+
+class CombinedDiceBCELoss(nn.Module):
+    def __init__(self, dice_weight=0.2):
+        super(CombinedDiceBCELoss, self).__init__()
+        self.dice_weight = dice_weight
+        self.bce_weight = 1 - dice_weight
+        self.bce_loss = nn.BCEWithLogitsLoss()
+        self.dice_loss = DiceLoss1D()
+
+    def forward(self, preds, targets):
+        bce_loss = self.bce_loss(preds, targets)
+        dice_loss = self.dice_loss(preds, targets)
+        combined_loss = self.bce_weight * bce_loss + self.dice_weight * dice_loss
+
+        return combined_loss
+
+
 def train(
     model: nn.Module,
     train_loader: DataLoader,
     criterion: nn.Module,
     optimizer: optim.Optimizer,
     device: torch.device,
+    l1_lambda: float = 2e-6,
 ) -> None:
     """
     Train the model for one epoch.
@@ -34,14 +65,14 @@ def train(
     """
     model.train()
     total_loss = 0
-    for batch in tqdm(train_loader, desc="Training"):
-        x, y = batch
-        x, y = x.to(device), y.to(device).float()
+    for x, y in tqdm(train_loader, desc="Training"):
+        x, y = x.to(device).cuda(non_blocking=True), y.to(device).float().cuda(non_blocking=True)
 
         optimizer.zero_grad()
 
         outputs = model(x)
-        loss = criterion(outputs, y)
+        l1_norm = sum(p.abs().sum() for p in model.parameters())
+        loss = criterion(outputs, y) + l1_lambda * l1_norm
         loss.backward()
         optimizer.step()
 
@@ -73,6 +104,7 @@ def evaluate(
     precision_metric = torchmetrics.Precision(task="binary").to(device)
     recall_metric = torchmetrics.Recall(task="binary").to(device)
     f1_metric = torchmetrics.F1Score(task="binary").to(device)
+    dice_metric = torchmetrics.Dice().to(device)
     total_loss = 0
     calculate_loss = prefix != "Train"
 
@@ -81,7 +113,7 @@ def evaluate(
             x, y = batch
             x, y = x.to(device), y.to(device).float()
 
-            outputs = model(x)
+            outputs = model(x, noise=False)
             if calculate_loss:
                 loss = criterion(outputs, y)
                 total_loss += loss.item()
@@ -91,6 +123,7 @@ def evaluate(
             precision_metric.update(preds, y.int())
             recall_metric.update(preds, y.int())
             f1_metric.update(preds, y.int())
+            dice_metric.update(preds, y.int())
 
     if calculate_loss:
         avg_loss = total_loss / len(data_loader)
@@ -101,11 +134,13 @@ def evaluate(
     precision = precision_metric.compute().item()
     recall = recall_metric.compute().item()
     f1 = f1_metric.compute().item()
+    dice = dice_metric.compute().item()
 
     logger.info(f"{prefix} Accuracy: {accuracy * 100:.2f}%")
     logger.info(f"{prefix} Precision: {precision:.4f}")
     logger.info(f"{prefix} Recall: {recall:.4f}")
     logger.info(f"{prefix} F1 Score: {f1:.4f}")
+    logger.info(f"{prefix} Dice Score: {dice:.4f}")
 
     wandb.log(
         {
@@ -113,6 +148,7 @@ def evaluate(
             f"{prefix} Precision": precision,
             f"{prefix} Recall": recall,
             f"{prefix} F1 Score": f1,
+            f"{prefix} Dice Score": dice,
         }
     )
 
@@ -132,6 +168,9 @@ def save_model_and_report(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     model_filename = f"{model_type}_{timestamp}_{epochs}_{batch_size}_{learning_rate}.pth"
     model_save_path = os.path.join(MODELS_DIR, model_filename)
+
+    if not os.path.exists(MODELS_DIR):
+        os.makedirs(MODELS_DIR)
 
     torch.save(model.state_dict(), model_save_path)
     logger.info(f"Model saved to {model_save_path}")
@@ -184,16 +223,23 @@ def train_model(
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
 
+    torch.set_float32_matmul_precision("high")
     model = get_model(model_type)
     if resume_model:
-        model.load_state_dict(torch.load(resume_model))
+        state_dict = torch.load(resume_model, weights_only=False)
+        prefix = "_orig_mod."
+        state_dict = {
+            k[len(prefix) :] if k.startswith(prefix) else k: v for k, v in state_dict.items()
+        }
+        model.load_state_dict(state_dict)
         logger.info(f"Resumed training from model: {resume_model}")
     model = torch.compile(model)
     model = model.to(device)
 
-    pos_weight = torch.tensor([4.74]).to(device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    # pos_weight = torch.tensor([3.7]).to(device)
+    # criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    criterion = CombinedDiceBCELoss(dice_weight=0.85)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-4)
 
     for epoch in range(wandb.config.epochs):
         logger.info(f"Epoch {epoch + 1}/{epochs}")
@@ -202,5 +248,5 @@ def train_model(
         evaluate(model, train_loader, criterion, device, prefix="Train")
         evaluate(model, val_loader, criterion, device, prefix="Validation")
 
-    save_model_and_report(model, model_type, epochs, batch_size, learning_rate)
+        save_model_and_report(model, model_type, epochs, batch_size, learning_rate)
     wandb.finish()
