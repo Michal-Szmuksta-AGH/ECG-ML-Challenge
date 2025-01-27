@@ -48,7 +48,7 @@ class LastChance(nn.Module):
         self.dense2 = nn.Linear(256, 32)
 
     def forward(self, x):
-        x = x.unsqueeze(1)
+        # x = x.unsqueeze(1)
         skip = F.leaky_relu(self.skipconv(x))
         skip = self.skip_dropout(skip)
         x1 = self.convblock1(x)
@@ -81,14 +81,13 @@ class RecordEvaluator:
     def evaluate(self, signal_reader):
         signal = signal_reader.read_signal().astype(np.float32)
         fs = signal_reader.read_fs()
-        signal = signal.T
 
         # Resampling
         if fs != TRAINED_FS:
-            signal, _ = wfdb.processing.resample_sig(signal[0, ...], fs, TRAINED_FS)
+            signal, _ = wfdb.processing.resample_sig(signal[..., 0], fs, TRAINED_FS)
             signal = signal.astype(np.float32)
         else:
-            signal = signal[0, ...]
+            signal = signal[..., 0]
             signal = signal.astype(np.float32)
         fs = TRAINED_FS
 
@@ -101,7 +100,7 @@ class RecordEvaluator:
             signal, qrs_inds, search_radius=int(0.1 * fs), smooth_window_size=150
         )
         rr = wfdb.processing.calc_rr(
-            qrs_inds, fs=fs, min_rr=None, max_rr=None, qrs_units="samples", rr_units="samples"
+            qrs_inds, fs=fs, min_rr=None, max_rr=None, qrs_units="samples", rr_units="seconds"
         )
 
         input_rr_samples = TRAINED_CHUNK_SIZE
@@ -109,35 +108,38 @@ class RecordEvaluator:
         qrs_af_probabs = np.zeros(shape=(len(qrs_inds),), dtype=np.float32)
         qrs_af_overlap = np.zeros(shape=(len(qrs_inds),), dtype=np.float32)
 
-        pred_step = 12
+        pred_step = 8
 
-        batch = np.zeros(shape=(batch_size, input_rr_samples, 1), dtype=np.float32)
+        batch = np.zeros(shape=(batch_size, 1, input_rr_samples), dtype=np.float32)
         batch_idx = 0
         rr_indices_history = []
         for rr_idx in range(0, rr.shape[0] - input_rr_samples, pred_step):
             snippet = rr[rr_idx : rr_idx + input_rr_samples]
             rr_indices_history.append([rr_idx, rr_idx + input_rr_samples])
-            snippet = snippet[..., np.newaxis]
+            snippet = snippet[np.newaxis, :]
             batch[batch_idx] = snippet
             batch_idx += 1
 
             if batch_idx == batch_size:
                 with torch.no_grad():
-                    results = self._model(torch.from_numpy(batch).float()).numpy()
+                    results = self._model(torch.from_numpy(batch).float())
+                    results = torch.sigmoid(results).numpy()
                 for j in range(batch_idx):
                     rr_from, rr_to = rr_indices_history[j]
-                    qrs_af_probabs[rr_from:rr_to] += results[j, :, 0]
+                    qrs_af_probabs[rr_from:rr_to] += results[j, :]
                     qrs_af_overlap[rr_from:rr_to] += 1.0
 
                 batch_idx = 0
                 rr_indices_history = []
 
         if batch_idx > 0:
+            batch = batch[:batch_idx]
             with torch.no_grad():
-                results = self._model(torch.from_numpy(batch).float()).numpy()
+                results = self._model(torch.from_numpy(batch).float())
+                results = torch.sigmoid(results).numpy()
             for j in range(batch_idx):
                 rr_from, rr_to = rr_indices_history[j]
-                qrs_af_probabs[rr_from:rr_to] += results[j, :, 0]
+                qrs_af_probabs[rr_from:rr_to] += results[j, :]
                 qrs_af_overlap[rr_from:rr_to] += 1.0
 
         qrs_af_overlap[qrs_af_overlap == 0.0] = 1.0
