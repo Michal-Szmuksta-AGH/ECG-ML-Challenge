@@ -6,7 +6,7 @@ import numpy as np
 import wfdb
 from wfdb import processing
 
-from signal_reader import SignalReader
+# from signal_reader import SignalReader
 from config import TRAINED_CHUNK_SIZE, TRAINED_FS, MODEL_FILE
 
 
@@ -48,7 +48,7 @@ class LastChance(nn.Module):
         self.dense2 = nn.Linear(256, 32)
 
     def forward(self, x):
-        x = x.unsqueeze(1)
+        # x = x.unsqueeze(1)
         skip = F.leaky_relu(self.skipconv(x))
         skip = self.skip_dropout(skip)
         x1 = self.convblock1(x)
@@ -79,9 +79,10 @@ class RecordEvaluator:
         self._model.eval()
 
     def evaluate(self, signal_reader):
-        signal = signal_reader.read_signal().astype(np.float32)
-        fs = signal_reader.read_fs()
-        signal = signal.T
+        # signal = signal_reader.read_signal().astype(np.float32)
+        # fs = signal_reader.read_fs()
+        signal = wfdb.rdrecord('001').p_signal
+        fs = wfdb.rdrecord('001').fs
 
         # Resampling
         if fs != TRAINED_FS:
@@ -160,5 +161,6 @@ class RecordEvaluator:
 
 if __name__ == "__main__":
     record_eval = RecordEvaluator("./")
-    signal_reader = SignalReader("./val_db/6.csv")
+    # signal_reader = SignalReader("./val_db/6.csv")
+    signal_reader = None
     record_eval.evaluate(signal_reader)
